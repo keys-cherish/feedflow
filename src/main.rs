@@ -91,31 +91,34 @@ async fn main() -> Result<()> {
     // 启动 HTTP 服务
     let listener = TcpListener::bind(config.listen_addr()).await?;
     info!("FeedFlow is ready!");
+    info!("  Open http://{} in your browser", config.listen_addr());
     info!("---------------------------------------------------");
-    info!("  POST   /api/feeds              - Subscribe RSS");
-    info!("  GET    /api/feeds              - List all feeds");
-    info!("  DELETE /api/feeds/{{id}}         - Unsubscribe");
-    info!("  POST   /api/feeds/{{id}}/refresh - Refresh feed");
-    info!("  GET    /api/feeds/{{id}}/articles- Feed articles");
-    info!("  GET    /api/articles            - All articles");
-    info!("  GET    /api/articles/unread     - Unread articles");
-    info!("  PUT    /api/articles/{{id}}/read - Mark read");
-    info!("  PUT    /api/articles/{{id}}/star - Star/unstar");
-    info!("  POST   /api/refresh             - Refresh all");
-    info!("  GET    /api/stats               - Statistics");
-    info!("  POST   /api/folders             - Create folder");
-    info!("  GET    /api/folders             - List folders");
-    info!("  PUT    /api/folders/{{id}}       - Update folder");
-    info!("  DELETE /api/folders/{{id}}       - Delete folder");
-    info!("  POST   /api/opml/import         - Import OPML");
-    info!("  GET    /api/opml/export         - Export OPML");
-    info!("  GET    /api/settings            - 获取设置");
-    info!("  PUT    /api/settings            - 更新设置");
-    info!("  POST   /api/articles/{{id}}/summarize - AI 摘要");
-    info!("  GET    /                        - Web UI");
-    info!("---------------------------------------------------");
+
+    // 自动打开浏览器（仅 Windows/macOS/Linux 桌面环境）
+    let url = format!("http://127.0.0.1:{}", config.port);
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let _ = open_browser(&url);
+    });
 
     axum::serve(listener, app).await?;
 
+    Ok(())
+}
+
+/// 跨平台打开浏览器
+fn open_browser(url: &str) -> std::io::Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd").args(["/c", "start", url]).spawn()?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(url).spawn()?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open").arg(url).spawn()?;
+    }
     Ok(())
 }
