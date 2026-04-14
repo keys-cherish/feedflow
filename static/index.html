@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="system">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,7 +8,9 @@
 /* ===== Reset & Base ===== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-:root {
+/* Dark theme (default) */
+:root,
+[data-theme="dark"] {
   --bg: #1a1a2e;
   --sidebar: #16213e;
   --accent: #0f3460;
@@ -27,6 +29,80 @@
   --input-bg: #16213e;
   --input-border: #2a2a4a;
   --topbar-h: 48px;
+  --heading-color: #fff;
+  --code-bg: #16213e;
+}
+
+/* Light theme */
+[data-theme="light"] {
+  --bg: #f5f0e8;
+  --sidebar: #ebe5d9;
+  --accent: #d8d0c4;
+  --highlight: #9a6d32;
+  --text: #1a1612;
+  --text-dim: #5a5248;
+  --text-muted: #9a9088;
+  --border: #d8d0c4;
+  --hover: rgba(154,109,50,0.1);
+  --surface: #ebe5d9;
+  --badge-bg: #9a6d32;
+  --badge-text: #fff;
+  --scrollbar-thumb: #c8c0b4;
+  --scrollbar-track: transparent;
+  --modal-bg: #ffffff;
+  --input-bg: #f5f0e8;
+  --input-border: #d8d0c4;
+  --topbar-h: 48px;
+  --heading-color: #1a1612;
+  --code-bg: #ebe5d9;
+}
+
+/* System theme: follow OS preference */
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] {
+    --bg: #f5f0e8;
+    --sidebar: #ebe5d9;
+    --accent: #d8d0c4;
+    --highlight: #9a6d32;
+    --text: #1a1612;
+    --text-dim: #5a5248;
+    --text-muted: #9a9088;
+    --border: #d8d0c4;
+    --hover: rgba(154,109,50,0.1);
+    --surface: #ebe5d9;
+    --badge-bg: #9a6d32;
+    --badge-text: #fff;
+    --scrollbar-thumb: #c8c0b4;
+    --scrollbar-track: transparent;
+    --modal-bg: #ffffff;
+    --input-bg: #f5f0e8;
+    --input-border: #d8d0c4;
+    --heading-color: #1a1612;
+    --code-bg: #ebe5d9;
+  }
+}
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] {
+    --bg: #1a1a2e;
+    --sidebar: #16213e;
+    --accent: #0f3460;
+    --highlight: #e94560;
+    --text: #e0e0e0;
+    --text-dim: #7a7a8e;
+    --text-muted: #555568;
+    --border: #2a2a4a;
+    --hover: rgba(233,69,96,0.12);
+    --surface: #1e1e38;
+    --badge-bg: #e94560;
+    --badge-text: #fff;
+    --scrollbar-thumb: #2a2a4a;
+    --scrollbar-track: transparent;
+    --modal-bg: #1e1e38;
+    --input-bg: #16213e;
+    --input-border: #2a2a4a;
+    --heading-color: #fff;
+    --code-bg: #16213e;
+  }
 }
 
 html, body {
@@ -85,13 +161,37 @@ a:hover { text-decoration: underline; }
   transition: background 0.15s, transform 0.1s;
   white-space: nowrap;
 }
-#topbar .tb-btn:hover { background: var(--highlight); }
+#topbar .tb-btn:hover { background: var(--highlight); color: var(--badge-text); }
 #topbar .tb-btn:active { transform: scale(0.97); }
 
 #main {
   flex: 1;
   display: flex;
   min-height: 0;
+}
+
+/* ===== Theme Switcher ===== */
+.theme-switcher {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--accent);
+  border-radius: 6px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+.theme-switcher .theme-btn {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--text-dim);
+  transition: background 0.15s, color 0.15s;
+  line-height: 1;
+}
+.theme-switcher .theme-btn:hover { color: var(--text); }
+.theme-switcher .theme-btn.active {
+  background: var(--highlight);
+  color: var(--badge-text);
 }
 
 /* ===== Sidebar ===== */
@@ -126,6 +226,11 @@ a:hover { text-decoration: underline; }
 }
 .sidebar-item:hover { background: var(--hover); }
 .sidebar-item.active { background: rgba(233,69,96,0.2); border-right: 3px solid var(--highlight); }
+
+[data-theme="light"] .sidebar-item.active { background: rgba(154,109,50,0.15); border-right: 3px solid var(--highlight); }
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] .sidebar-item.active { background: rgba(154,109,50,0.15); border-right: 3px solid var(--highlight); }
+}
 
 .sidebar-item .icon {
   width: 18px;
@@ -254,6 +359,11 @@ a:hover { text-decoration: underline; }
 .article-item:hover { background: var(--hover); }
 .article-item.active { background: rgba(233,69,96,0.15); }
 
+[data-theme="light"] .article-item.active { background: rgba(154,109,50,0.12); }
+@media (prefers-color-scheme: light) {
+  [data-theme="system"] .article-item.active { background: rgba(154,109,50,0.12); }
+}
+
 .article-item .a-title {
   font-size: 13px;
   line-height: 1.4;
@@ -264,7 +374,7 @@ a:hover { text-decoration: underline; }
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.article-item.unread .a-title { color: #fff; font-weight: 600; }
+.article-item.unread .a-title { color: var(--heading-color); font-weight: 600; }
 
 .article-item .a-meta {
   display: flex;
@@ -366,7 +476,7 @@ a:hover { text-decoration: underline; }
   font-weight: 700;
   line-height: 1.3;
   margin-bottom: 8px;
-  color: #fff;
+  color: var(--heading-color);
 }
 
 #reader-header .r-meta {
@@ -392,8 +502,8 @@ a:hover { text-decoration: underline; }
   transition: background 0.15s;
   color: var(--text);
 }
-.r-action-btn:hover { background: var(--highlight); }
-.r-action-btn.active { background: var(--highlight); }
+.r-action-btn:hover { background: var(--highlight); color: var(--badge-text); }
+.r-action-btn.active { background: var(--highlight); color: var(--badge-text); }
 
 #reader-body {
   flex: 1;
@@ -418,7 +528,7 @@ a:hover { text-decoration: underline; }
 }
 
 #reader-body .article-content pre {
-  background: var(--sidebar);
+  background: var(--code-bg);
   padding: 12px;
   border-radius: 6px;
   overflow-x: auto;
@@ -427,7 +537,7 @@ a:hover { text-decoration: underline; }
 }
 
 #reader-body .article-content code {
-  background: var(--sidebar);
+  background: var(--code-bg);
   padding: 2px 5px;
   border-radius: 3px;
   font-size: 0.9em;
@@ -452,7 +562,7 @@ a:hover { text-decoration: underline; }
 #reader-body .article-content h5,
 #reader-body .article-content h6 {
   margin: 20px 0 10px;
-  color: #fff;
+  color: var(--heading-color);
 }
 
 #reader-body .article-content p { margin: 10px 0; }
@@ -460,7 +570,7 @@ a:hover { text-decoration: underline; }
 #reader-body .article-content li { margin: 4px 0; }
 #reader-body .article-content table { border-collapse: collapse; margin: 12px 0; width: 100%; }
 #reader-body .article-content th, #reader-body .article-content td { border: 1px solid var(--border); padding: 8px; text-align: left; }
-#reader-body .article-content th { background: var(--sidebar); }
+#reader-body .article-content th { background: var(--code-bg); }
 #reader-body .article-content hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 #reader-body .article-content a { color: var(--highlight); }
 
@@ -495,7 +605,7 @@ a:hover { text-decoration: underline; }
 .modal h2 {
   font-size: 16px;
   margin-bottom: 16px;
-  color: #fff;
+  color: var(--heading-color);
 }
 
 .modal .form-group { margin-bottom: 14px; }
@@ -541,7 +651,7 @@ a:hover { text-decoration: underline; }
 .modal .btn-primary { background: var(--highlight); color: #fff; }
 .modal .btn-primary:hover { background: #d63050; }
 .modal .btn-cancel { background: var(--accent); color: var(--text); }
-.modal .btn-cancel:hover { background: #1a4a7a; }
+.modal .btn-cancel:hover { background: var(--hover); }
 
 /* ===== Context Menu ===== */
 #context-menu {
@@ -740,6 +850,74 @@ a:hover { text-decoration: underline; }
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* ===== Search Modal ===== */
+#modal-search .modal {
+  max-width: 600px;
+}
+.search-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.search-input-row input[type="text"] {
+  flex: 1;
+}
+.search-input-row .search-regex-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.search-input-row .search-regex-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--highlight);
+}
+.search-results-list {
+  max-height: 400px;
+  overflow-y: auto;
+  margin-top: 12px;
+}
+.search-results-list .article-item {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.search-results-list .article-item:hover { background: var(--hover); }
+.search-results-list .article-item .a-title {
+  font-size: 13px;
+  line-height: 1.4;
+  margin-bottom: 4px;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.search-results-list .article-item .a-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.search-results-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+.search-empty {
+  text-align: center;
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
 </style>
 </head>
 <body>
@@ -752,7 +930,13 @@ a:hover { text-decoration: underline; }
     <button class="tb-btn" id="btn-add-feed">添加订阅</button>
     <button class="tb-btn" id="btn-import-opml">导入 OPML</button>
     <button class="tb-btn" id="btn-export-opml">导出 OPML</button>
+    <button class="tb-btn" id="btn-search" title="搜索文章 (Ctrl+K)">&#128269; 搜索</button>
     <button class="tb-btn" id="btn-settings">&#9881; 设置</button>
+    <div class="theme-switcher" id="theme-switcher">
+      <button class="theme-btn" data-theme-value="light" title="浅色主题">&#9728;&#65039;</button>
+      <button class="theme-btn" data-theme-value="dark" title="深色主题">&#127769;</button>
+      <button class="theme-btn active" data-theme-value="system" title="跟随系统">&#128421;&#65039;</button>
+    </div>
     <input type="file" id="opml-file-input" accept=".opml,.xml">
   </div>
 
@@ -913,9 +1097,34 @@ a:hover { text-decoration: underline; }
       <label for="settings-ai-summary-prompt">摘要提示词</label>
       <textarea id="settings-ai-summary-prompt" rows="3" placeholder="请用中文总结这篇文章的主要内容..."></textarea>
     </div>
+    <div class="form-group">
+      <label for="settings-bangumi-token">Bangumi Token</label>
+      <input type="password" id="settings-bangumi-token" placeholder="Bangumi API Token">
+    </div>
     <div class="btn-row">
       <button class="btn btn-cancel" data-close-modal="modal-settings">取消</button>
       <button class="btn btn-primary" id="btn-submit-settings">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Search -->
+<div class="modal-overlay" id="modal-search">
+  <div class="modal">
+    <h2>搜索文章</h2>
+    <div class="form-group">
+      <div class="search-input-row">
+        <input type="text" id="search-query-input" placeholder="输入关键词搜索...">
+        <label class="search-regex-toggle">
+          <input type="checkbox" id="search-regex-toggle">
+          正则
+        </label>
+      </div>
+    </div>
+    <div class="search-results-count" id="search-results-count" style="display:none;"></div>
+    <div class="search-results-list" id="search-results-list"></div>
+    <div class="btn-row">
+      <button class="btn btn-cancel" data-close-modal="modal-search">关闭</button>
     </div>
   </div>
 </div>
@@ -938,6 +1147,27 @@ a:hover { text-decoration: underline; }
   "use strict";
 
   /* =====================================================================
+     Theme Management
+     ===================================================================== */
+  function initTheme() {
+    var saved = localStorage.getItem("feedflow-theme") || "system";
+    applyTheme(saved);
+  }
+
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("feedflow-theme", theme);
+    /* Update theme switcher button states */
+    var buttons = document.querySelectorAll("#theme-switcher .theme-btn");
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].classList.toggle("active", buttons[i].getAttribute("data-theme-value") === theme);
+    }
+  }
+
+  /* Apply theme immediately before anything else renders */
+  initTheme();
+
+  /* =====================================================================
      Application State
      ===================================================================== */
   var state = {
@@ -956,7 +1186,8 @@ a:hover { text-decoration: underline; }
     contextFeedFolderId: null,
     collapsedFolders: {},
     loading: false,
-    feedMap: {}
+    feedMap: {},
+    searchDebounceTimer: null
   };
 
   /* =====================================================================
@@ -996,7 +1227,12 @@ a:hover { text-decoration: underline; }
     settingsAiApiUrl: document.getElementById("settings-ai-api-url"),
     settingsAiApiKey: document.getElementById("settings-ai-api-key"),
     settingsAiModel: document.getElementById("settings-ai-model"),
-    settingsAiSummaryPrompt: document.getElementById("settings-ai-summary-prompt")
+    settingsAiSummaryPrompt: document.getElementById("settings-ai-summary-prompt"),
+    settingsBangumiToken: document.getElementById("settings-bangumi-token"),
+    searchQueryInput: document.getElementById("search-query-input"),
+    searchRegexToggle: document.getElementById("search-regex-toggle"),
+    searchResultsList: document.getElementById("search-results-list"),
+    searchResultsCount: document.getElementById("search-results-count")
   };
 
   /* =====================================================================
@@ -1408,17 +1644,14 @@ a:hover { text-decoration: underline; }
     var offset = append ? state.articleOffset : 0;
     var view = state.currentView;
     var urlPath;
-    var filterStarred = false;
 
     if (view === "all") {
       urlPath = "/api/articles?limit=" + state.articleLimit + "&offset=" + offset;
     } else if (view === "unread") {
       urlPath = "/api/articles/unread?limit=" + state.articleLimit + "&offset=" + offset;
     } else if (view === "starred") {
-      /* No dedicated starred endpoint -- fetch a larger batch and filter.
-         We over-fetch to compensate for filtering. */
-      urlPath = "/api/articles?limit=" + (state.articleLimit * 4) + "&offset=" + offset;
-      filterStarred = true;
+      /* Use the dedicated starred endpoint */
+      urlPath = "/api/articles/starred?limit=" + state.articleLimit + "&offset=" + offset;
     } else if (view.indexOf("feed:") === 0) {
       var feedId = view.substring(5);
       urlPath = "/api/feeds/" + feedId + "/articles?limit=" + state.articleLimit + "&offset=" + offset;
@@ -1429,15 +1662,7 @@ a:hover { text-decoration: underline; }
     }
 
     return api("GET", urlPath).then(function(data) {
-      var rawArticles = data || [];
-      var articles = rawArticles;
-
-      if (filterStarred) {
-        articles = [];
-        for (var i = 0; i < rawArticles.length; i++) {
-          if (rawArticles[i].is_starred) articles.push(rawArticles[i]);
-        }
-      }
+      var articles = data || [];
 
       if (append) {
         for (var j = 0; j < articles.length; j++) {
@@ -1448,8 +1673,8 @@ a:hover { text-decoration: underline; }
         state.selectedArticleIndex = -1;
       }
 
-      state.articleOffset = offset + rawArticles.length;
-      state.hasMoreArticles = rawArticles.length >= (filterStarred ? state.articleLimit * 4 : state.articleLimit);
+      state.articleOffset = offset + articles.length;
+      state.hasMoreArticles = articles.length >= state.articleLimit;
 
       renderArticleList(append);
     }).catch(function(err) {
@@ -1752,6 +1977,7 @@ a:hover { text-decoration: underline; }
       dom.settingsAiApiKey.value = data.ai_api_key || "";
       dom.settingsAiModel.value = data.ai_model || "";
       dom.settingsAiSummaryPrompt.value = data.ai_summary_prompt || "";
+      dom.settingsBangumiToken.value = data.bangumi_token || "";
     }).catch(function() {
       /* Settings endpoint may not exist yet -- silently ignore */
     });
@@ -1764,7 +1990,8 @@ a:hover { text-decoration: underline; }
       ai_api_url: dom.settingsAiApiUrl.value.trim(),
       ai_api_key: dom.settingsAiApiKey.value,
       ai_model: dom.settingsAiModel.value.trim(),
-      ai_summary_prompt: dom.settingsAiSummaryPrompt.value
+      ai_summary_prompt: dom.settingsAiSummaryPrompt.value,
+      bangumi_token: dom.settingsBangumiToken.value.trim()
     };
     api("PUT", "/api/settings", payload).then(function() {
       toast("设置已保存", "success");
@@ -1803,6 +2030,65 @@ a:hover { text-decoration: underline; }
   }
 
   /* =====================================================================
+     Search
+     ===================================================================== */
+  function performSearch() {
+    var query = dom.searchQueryInput.value.trim();
+    if (!query) {
+      dom.searchResultsList.innerHTML = "";
+      dom.searchResultsCount.style.display = "none";
+      return;
+    }
+
+    var useRegex = dom.searchRegexToggle.checked;
+    var encodedQ = encodeURIComponent(query);
+    var searchUrl = "/api/articles/search?q=" + encodedQ + "&regex=" + useRegex;
+
+    api("GET", searchUrl).then(function(data) {
+      var results = data || [];
+      dom.searchResultsCount.textContent = "找到 " + results.length + " 篇文章";
+      dom.searchResultsCount.style.display = "block";
+
+      if (results.length === 0) {
+        dom.searchResultsList.innerHTML = '<div class="search-empty">没有找到匹配的文章</div>';
+        return;
+      }
+
+      var html = "";
+      for (var i = 0; i < results.length; i++) {
+        var a = results[i];
+        var feedName = "";
+        if (state.feedMap[a.feed_id]) {
+          feedName = state.feedMap[a.feed_id].title || state.feedMap[a.feed_id].url || "";
+        }
+        html += '<div class="article-item" data-search-article-id="' + a.id + '">' +
+          '<div class="a-title">' + escapeHtml(a.title || "（无标题）") + '</div>' +
+          '<div class="a-meta">' +
+          '<span class="a-feed-name">' + escapeHtml(feedName) + '</span>' +
+          '<span>&middot;</span>' +
+          '<span>' + relativeDate(a.published_at || a.created_at) + '</span>' +
+          (a.is_starred ? '<span class="a-star-indicator">&#9733;</span>' : '') +
+          '</div>' +
+          '</div>';
+      }
+      dom.searchResultsList.innerHTML = html;
+
+      /* Store search results so we can select them */
+      dom.searchResultsList._results = results;
+    }).catch(function(err) {
+      dom.searchResultsList.innerHTML = '<div class="search-empty">搜索失败: ' + escapeHtml(err.message) + '</div>';
+      dom.searchResultsCount.style.display = "none";
+    });
+  }
+
+  function openSearchModal() {
+    dom.searchQueryInput.value = "";
+    dom.searchResultsList.innerHTML = "";
+    dom.searchResultsCount.style.display = "none";
+    openModal("modal-search");
+  }
+
+  /* =====================================================================
      Event Binding
      ===================================================================== */
 
@@ -1829,6 +2115,66 @@ a:hover { text-decoration: underline; }
   });
 
   document.getElementById("btn-export-opml").addEventListener("click", exportOPML);
+
+  /* -- Search button -- */
+  document.getElementById("btn-search").addEventListener("click", openSearchModal);
+
+  /* -- Search input: debounced live search -- */
+  dom.searchQueryInput.addEventListener("input", function() {
+    clearTimeout(state.searchDebounceTimer);
+    state.searchDebounceTimer = setTimeout(performSearch, 300);
+  });
+
+  dom.searchQueryInput.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") {
+      clearTimeout(state.searchDebounceTimer);
+      performSearch();
+    }
+  });
+
+  /* -- Search regex toggle triggers re-search -- */
+  dom.searchRegexToggle.addEventListener("change", function() {
+    if (dom.searchQueryInput.value.trim()) {
+      performSearch();
+    }
+  });
+
+  /* -- Search results: click to select article -- */
+  dom.searchResultsList.addEventListener("click", function(e) {
+    var item = e.target.closest ? e.target.closest(".article-item") : findParent(e.target, "article-item");
+    if (!item) return;
+    var articleId = item.getAttribute("data-search-article-id");
+    if (!articleId) return;
+
+    /* Find this article in search results and display it */
+    var results = dom.searchResultsList._results || [];
+    for (var i = 0; i < results.length; i++) {
+      if (String(results[i].id) === String(articleId)) {
+        state.currentArticle = results[i];
+        renderReader();
+        closeModal("modal-search");
+
+        /* Also mark it as read */
+        if (!results[i].is_read) {
+          results[i].is_read = true;
+          api("PUT", "/api/articles/" + results[i].id + "/read", { is_read: true }).then(function() {
+            loadStats();
+          }).catch(function() {});
+        }
+        break;
+      }
+    }
+  });
+
+  /* -- Theme switcher -- */
+  document.getElementById("theme-switcher").addEventListener("click", function(e) {
+    var btn = e.target.closest ? e.target.closest(".theme-btn") : findParent(e.target, "theme-btn");
+    if (!btn) return;
+    var themeValue = btn.getAttribute("data-theme-value");
+    if (themeValue) {
+      applyTheme(themeValue);
+    }
+  });
 
   /* -- Settings button -- */
   document.getElementById("btn-settings").addEventListener("click", function() {
@@ -2022,6 +2368,13 @@ a:hover { text-decoration: underline; }
     }
     if (modalOpen) return;
 
+    /* Ctrl+K / Cmd+K to open search */
+    if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+      e.preventDefault();
+      openSearchModal();
+      return;
+    }
+
     switch (e.key) {
       case "j":
         /* Next article */
@@ -2053,6 +2406,11 @@ a:hover { text-decoration: underline; }
         break;
       case "s":
         toggleCurrentStar();
+        break;
+      case "/":
+        /* Slash to open search (common convention) */
+        e.preventDefault();
+        openSearchModal();
         break;
     }
   });

@@ -101,6 +101,14 @@ pub struct OpmlImportRequest {
     pub xml: String,
 }
 
+#[derive(Deserialize)]
+pub struct SearchParams {
+    pub q: String,
+    pub regex: Option<bool>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
 // ─────────────────────────── 路由定义 ───────────────────────────
 
 pub fn create_router(state: Arc<AppState>) -> Router {
@@ -118,6 +126,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // 文章
         .route("/api/articles", get(list_all_articles))
         .route("/api/articles/unread", get(list_unread_articles))
+        .route("/api/articles/starred", get(list_starred_articles))
+        .route("/api/articles/search", get(search_articles))
         .route("/api/articles/{article_id}/read", put(set_article_read))
         .route("/api/articles/{article_id}/star", put(set_article_starred))
         // Folders
@@ -322,6 +332,43 @@ async fn list_unread_articles(
         .db
         .get_unread_articles(limit, offset)
         .map_err(|e| ApiResponse::err(e.to_string()))?;
+
+    Ok(ApiResponse::ok(articles))
+}
+
+/// 获取收藏文章
+async fn list_starred_articles(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<PaginationParams>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ApiResponse<()>>)> {
+    let limit = params.limit.unwrap_or(50).min(200);
+    let offset = params.offset.unwrap_or(0);
+
+    let articles = state
+        .db
+        .get_starred_articles(limit, offset)
+        .map_err(|e| ApiResponse::err(e.to_string()))?;
+
+    Ok(ApiResponse::ok(articles))
+}
+
+/// 搜索文章（支持正则表达式）
+async fn search_articles(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<SearchParams>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ApiResponse<()>>)> {
+    let query = params.q.trim().to_string();
+    if query.is_empty() {
+        return Err(ApiResponse::err("搜索关键词不能为空"));
+    }
+    let use_regex = params.regex.unwrap_or(false);
+    let limit = params.limit.unwrap_or(50).min(200);
+    let offset = params.offset.unwrap_or(0);
+
+    let articles = state
+        .db
+        .search_articles(&query, use_regex, limit, offset)
+        .map_err(|e| ApiResponse::err(format!("搜索失败: {:#}", e)))?;
 
     Ok(ApiResponse::ok(articles))
 }

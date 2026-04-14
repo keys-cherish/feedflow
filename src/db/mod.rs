@@ -398,6 +398,79 @@ impl Database {
         Ok(articles)
     }
 
+    /// 获取所有收藏文章
+    pub fn get_starred_articles(&self, limit: i64, offset: i64) -> Result<Vec<Article>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, feed_id, guid, title, url, author, content_html, content_text,
+                    summary, thumbnail_url, published_at, is_read, is_starred,
+                    ai_summary, ai_tags, created_at, updated_at
+             FROM articles WHERE is_starred = 1
+             ORDER BY published_at DESC NULLS LAST, created_at DESC
+             LIMIT ?1 OFFSET ?2",
+        )?;
+
+        let articles = stmt
+            .query_map(params![limit, offset], |row| Self::row_to_article(row))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(articles)
+    }
+
+    /// 搜索文章（支持普通文本和正则表达式）
+    pub fn search_articles(&self, query: &str, use_regex: bool, limit: i64, offset: i64) -> Result<Vec<Article>> {
+        if use_regex {
+            // 正则模式：取出文章后在 Rust 侧过滤
+            let re = regex::Regex::new(query)
+                .map_err(|e| anyhow::anyhow!("Invalid regex: {}", e))?;
+
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT id, feed_id, guid, title, url, author, content_html, content_text,
+                        summary, thumbnail_url, published_at, is_read, is_starred,
+                        ai_summary, ai_tags, created_at, updated_at
+                 FROM articles
+                 ORDER BY published_at DESC NULLS LAST, created_at DESC",
+            )?;
+
+            let all: Vec<Article> = stmt
+                .query_map([], |row| Self::row_to_article(row))?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let filtered: Vec<Article> = all
+                .into_iter()
+                .filter(|a| {
+                    re.is_match(&a.title)
+                        || a.content_text.as_deref().map_or(false, |t| re.is_match(t))
+                        || a.summary.as_deref().map_or(false, |t| re.is_match(t))
+                })
+                .skip(offset as usize)
+                .take(limit as usize)
+                .collect();
+
+            Ok(filtered)
+        } else {
+            // 普通模式：SQL LIKE
+            let pattern = format!("%{}%", query);
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT id, feed_id, guid, title, url, author, content_html, content_text,
+                        summary, thumbnail_url, published_at, is_read, is_starred,
+                        ai_summary, ai_tags, created_at, updated_at
+                 FROM articles
+                 WHERE title LIKE ?1 OR content_text LIKE ?1 OR summary LIKE ?1
+                 ORDER BY published_at DESC NULLS LAST, created_at DESC
+                 LIMIT ?2 OFFSET ?3",
+            )?;
+
+            let articles = stmt
+                .query_map(params![pattern, limit, offset], |row| Self::row_to_article(row))?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(articles)
+        }
+    }
+
     /// 获取所有文章（时间线视图）
     pub fn get_all_articles(&self, limit: i64, offset: i64) -> Result<Vec<Article>> {
         let conn = self.conn.lock().unwrap();

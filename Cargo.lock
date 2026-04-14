@@ -443,6 +443,7 @@ dependencies = [
  "chrono",
  "feed-rs",
  "quick-xml",
+ "regex",
  "reqwest",
  "rusqlite",
  "serde",

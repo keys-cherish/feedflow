@@ -51,3 +51,6 @@ rusqlite = { version = "0.32", features = ["bundled", "chrono", "uuid"] }
 
 # OPML parsing
 quick-xml = "0.37"
+
+# Regex search
+regex = "1"
