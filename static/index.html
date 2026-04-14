@@ -109,6 +109,7 @@ html, body {
   height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   font-size: 14px;
+  -webkit-text-size-adjust: 100%;
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
@@ -247,13 +248,13 @@ a:hover { text-decoration: underline; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .badge {
   background: var(--badge-bg);
   color: var(--badge-text);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 10px;
@@ -271,7 +272,7 @@ a:hover { text-decoration: underline; }
   transition: background 0.12s;
   gap: 6px;
   user-select: none;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -331,7 +332,7 @@ a:hover { text-decoration: underline; }
 #article-list-header {
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-dim);
   display: flex;
@@ -365,7 +366,7 @@ a:hover { text-decoration: underline; }
 }
 
 .article-item .a-title {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.4;
   margin-bottom: 4px;
   color: var(--text-dim);
@@ -380,7 +381,7 @@ a:hover { text-decoration: underline; }
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 
@@ -483,7 +484,7 @@ a:hover { text-decoration: underline; }
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-dim);
   flex-wrap: wrap;
 }
@@ -891,7 +892,7 @@ a:hover { text-decoration: underline; }
 }
 .search-results-list .article-item:hover { background: var(--hover); }
 .search-results-list .article-item .a-title {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.4;
   margin-bottom: 4px;
   color: var(--text);
@@ -904,7 +905,7 @@ a:hover { text-decoration: underline; }
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 .search-results-count {
@@ -918,6 +919,11 @@ a:hover { text-decoration: underline; }
   color: var(--text-muted);
   font-size: 13px;
 }
+
+/* ===== Bangumi Cover ===== */
+.bangumi-cover { width: 80px; height: 112px; border-radius: 6px; object-fit: cover; flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+.reader-header-with-cover { display: flex; gap: 16px; align-items: flex-start; }
+.reader-header-text { flex: 1; min-width: 0; }
 </style>
 </head>
 <body>
@@ -990,21 +996,25 @@ a:hover { text-decoration: underline; }
         </div>
       </div>
       <div id="reader-header">
-        <div class="r-title" id="reader-title"></div>
-        <div class="r-meta" id="reader-meta"></div>
-        <div class="r-actions">
-          <button class="r-action-btn" id="btn-toggle-read">标记未读</button>
-          <button class="r-action-btn" id="btn-toggle-star">收藏</button>
-          <a class="r-action-btn" id="btn-open-link" href="#" target="_blank" rel="noopener noreferrer"
-             style="text-decoration:none;display:inline-block;">
-            查看原文
-          </a>
-          <button class="r-action-btn" id="btn-ai-summary">AI 总结</button>
-        </div>
-        <div id="reader-ai-summary">
-          <div class="ai-summary-label">AI 摘要</div>
-          <div class="ai-summary-text"></div>
-          <div class="ai-summary-loading" style="display:none;"><span class="spinner"></span> AI 总结中...</div>
+        <div class="reader-header-with-cover" id="reader-header-inner">
+          <div class="reader-header-text">
+            <div class="r-title" id="reader-title"></div>
+            <div class="r-meta" id="reader-meta"></div>
+            <div class="r-actions">
+              <button class="r-action-btn" id="btn-toggle-read">标记未读</button>
+              <button class="r-action-btn" id="btn-toggle-star">收藏</button>
+              <a class="r-action-btn" id="btn-open-link" href="#" target="_blank" rel="noopener noreferrer"
+                 style="text-decoration:none;display:inline-block;">
+                查看原文
+              </a>
+              <button class="r-action-btn" id="btn-ai-summary">AI 总结</button>
+            </div>
+            <div id="reader-ai-summary">
+              <div class="ai-summary-label">AI 摘要</div>
+              <div class="ai-summary-text"></div>
+              <div class="ai-summary-loading" style="display:none;"><span class="spinner"></span> AI 总结中...</div>
+            </div>
+          </div>
         </div>
       </div>
       <div id="reader-body">
@@ -1187,7 +1197,8 @@ a:hover { text-decoration: underline; }
     collapsedFolders: {},
     loading: false,
     feedMap: {},
-    searchDebounceTimer: null
+    searchDebounceTimer: null,
+    coverCache: {}
   };
 
   /* =====================================================================
@@ -1513,6 +1524,23 @@ a:hover { text-decoration: underline; }
   }
 
   /* =====================================================================
+     Bangumi Cover Fetch
+     ===================================================================== */
+  async function fetchBangumiCover(query) {
+    if (state.coverCache[query] !== undefined) return state.coverCache[query];
+    try {
+      var resp = await fetch('/api/bangumi/search?q=' + encodeURIComponent(query));
+      var json = await resp.json();
+      if (json.success && json.data && json.data.cover_url) {
+        state.coverCache[query] = json.data.cover_url;
+        return json.data.cover_url;
+      }
+    } catch(e) {}
+    state.coverCache[query] = null;
+    return null;
+  }
+
+  /* =====================================================================
      Render: Article Reader
      ===================================================================== */
   function renderReader() {
@@ -1581,6 +1609,30 @@ a:hover { text-decoration: underline; }
 
     /* Scroll reader body to top */
     dom.readerBody.scrollTop = 0;
+
+    /* Fetch and display Bangumi cover next to the article header */
+    (function() {
+      var headerInner = document.getElementById("reader-header-inner");
+      /* Remove any existing cover image */
+      var oldCover = headerInner.querySelector(".bangumi-cover");
+      if (oldCover) oldCover.remove();
+
+      var feedTitle = feedName || a.title || "";
+      if (!feedTitle) return;
+
+      fetchBangumiCover(feedTitle).then(function(coverUrl) {
+        /* Verify the article is still the same one when the response arrives */
+        if (state.currentArticle !== a) return;
+        if (!coverUrl) return;
+        var img = document.createElement("img");
+        img.className = "bangumi-cover";
+        img.src = coverUrl;
+        img.alt = feedTitle;
+        img.onerror = function() { img.remove(); };
+        /* Insert cover at the beginning of the flex container (left side) */
+        headerInner.insertBefore(img, headerInner.firstChild);
+      });
+    })();
   }
 
   /* Style .torrent and magnet: links as download buttons */
