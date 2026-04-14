@@ -3,6 +3,7 @@ mod auth;
 mod config;
 mod db;
 mod feed;
+pub mod mikan;
 mod models;
 mod services;
 mod opml;
