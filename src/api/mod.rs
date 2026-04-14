@@ -158,6 +158,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/api/stats", get(get_stats))
         // 健康检查
         .route("/health", get(health_check))
+        // 认证（预留）
+        .route("/api/auth/login", post(login_handler))
         .with_state(state)
 }
 
@@ -750,5 +752,36 @@ async fn bangumi_search(
             "bgm_name": "",
             "cached": false
         })))
+    }
+}
+
+// ─────────────────────────── Auth Handler ───────────────────────────
+
+#[derive(Deserialize)]
+pub struct LoginRequest {
+    pub password: String,
+}
+
+/// 登录接口 — 验证密码并返回 token
+/// 当 FEEDFLOW_AUTH_TOKEN 未设置时返回错误提示
+async fn login_handler(
+    Json(req): Json<LoginRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ApiResponse<()>>)> {
+    let token = std::env::var("FEEDFLOW_AUTH_TOKEN").unwrap_or_default();
+
+    if token.is_empty() {
+        return Ok(ApiResponse::ok(serde_json::json!({
+            "token": "",
+            "message": "认证未启用，无需登录"
+        })));
+    }
+
+    if req.password == token {
+        Ok(ApiResponse::ok(serde_json::json!({
+            "token": token,
+            "message": "登录成功"
+        })))
+    } else {
+        Err(ApiResponse::err("密码错误"))
     }
 }

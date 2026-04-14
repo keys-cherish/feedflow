@@ -1,4 +1,5 @@
 mod api;
+mod auth;
 mod config;
 mod db;
 mod feed;
@@ -76,8 +77,9 @@ async fn main() -> Result<()> {
         });
     }
 
-    // 构建路由
+    // 构建路由（含认证中间件）
     let app = api::create_router(state)
+        .layer(axum::middleware::from_fn(auth::auth_middleware))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
