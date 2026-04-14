@@ -1,0 +1,53 @@
+[package]
+name = "feedflow"
+version = "0.1.0"
+edition = "2021"
+description = "High-performance multi-platform RSS reader with AI summarization"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client for fetching feeds
+reqwest = { version = "0.12", features = ["gzip", "brotli", "deflate", "json", "rustls-tls"], default-features = false }
+
+# RSS/Atom feed parsing
+feed-rs = "2"
+
+# Web framework
+axum = { version = "0.8", features = ["ws", "macros"] }
+tower = { version = "0.5", features = ["timeout", "limit"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Unique IDs
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# HTML sanitization
+ammonia = "4"
+
+# URL handling
+url = "2"
+
+# Cron-like scheduling for feed polling
+tokio-cron-scheduler = "0.13"
+
+# Database (SQLite for MVP, migrate to PostgreSQL later)
+rusqlite = { version = "0.32", features = ["bundled", "chrono", "uuid"] }
+
+# OPML parsing
+quick-xml = "0.37"

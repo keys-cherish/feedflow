@@ -1,0 +1,2095 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FeedFlow</title>
+<style>
+/* ===== Reset & Base ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #1a1a2e;
+  --sidebar: #16213e;
+  --accent: #0f3460;
+  --highlight: #e94560;
+  --text: #e0e0e0;
+  --text-dim: #7a7a8e;
+  --text-muted: #555568;
+  --border: #2a2a4a;
+  --hover: rgba(233,69,96,0.12);
+  --surface: #1e1e38;
+  --badge-bg: #e94560;
+  --badge-text: #fff;
+  --scrollbar-thumb: #2a2a4a;
+  --scrollbar-track: transparent;
+  --modal-bg: #1e1e38;
+  --input-bg: #16213e;
+  --input-border: #2a2a4a;
+  --topbar-h: 48px;
+}
+
+html, body {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3a3a5a; }
+
+button { cursor: pointer; font-family: inherit; font-size: inherit; border: none; background: none; color: inherit; }
+input, textarea, select { font-family: inherit; font-size: inherit; }
+a { color: var(--highlight); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ===== Layout ===== */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+#topbar {
+  height: var(--topbar-h);
+  min-height: var(--topbar-h);
+  background: var(--sidebar);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 8px;
+  z-index: 100;
+}
+
+#topbar .app-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--highlight);
+  margin-right: auto;
+  letter-spacing: 0.5px;
+}
+
+#topbar .tb-btn {
+  padding: 6px 12px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--text);
+  font-size: 13px;
+  transition: background 0.15s, transform 0.1s;
+  white-space: nowrap;
+}
+#topbar .tb-btn:hover { background: var(--highlight); }
+#topbar .tb-btn:active { transform: scale(0.97); }
+
+#main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* ===== Sidebar ===== */
+#sidebar {
+  width: 250px;
+  min-width: 250px;
+  background: var(--sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.sidebar-section {
+  padding: 4px 0;
+}
+
+.sidebar-section + .sidebar-section {
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background 0.12s;
+  gap: 8px;
+  user-select: none;
+  position: relative;
+}
+.sidebar-item:hover { background: var(--hover); }
+.sidebar-item.active { background: rgba(233,69,96,0.2); border-right: 3px solid var(--highlight); }
+
+.sidebar-item .icon {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.sidebar-item .label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.badge {
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.badge.zero { display: none; }
+
+.folder-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background 0.12s;
+  gap: 6px;
+  user-select: none;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+}
+.folder-header:hover { background: var(--hover); }
+
+.folder-header .chevron {
+  transition: transform 0.2s;
+  font-size: 10px;
+}
+.folder-header .chevron.collapsed { transform: rotate(-90deg); }
+
+.folder-header .folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.folder-feeds { overflow: hidden; transition: max-height 0.25s ease; }
+.folder-feeds.collapsed { max-height: 0 !important; }
+
+.folder-feeds .sidebar-item { padding-left: 30px; }
+
+.sidebar-item .feed-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-footer .add-folder-btn {
+  width: 100%;
+  padding: 6px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--text-dim);
+  font-size: 12px;
+  text-align: center;
+  transition: background 0.15s, color 0.15s;
+}
+.sidebar-footer .add-folder-btn:hover { background: var(--highlight); color: #fff; }
+
+/* ===== Article List ===== */
+#article-list {
+  width: 350px;
+  min-width: 280px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+#article-list-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  background: var(--surface);
+}
+
+#article-list-header .view-title { flex: 1; }
+
+#article-list-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.article-item {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.12s;
+  position: relative;
+}
+.article-item:hover { background: var(--hover); }
+.article-item.active { background: rgba(233,69,96,0.15); }
+
+.article-item .a-title {
+  font-size: 13px;
+  line-height: 1.4;
+  margin-bottom: 4px;
+  color: var(--text-dim);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.article-item.unread .a-title { color: #fff; font-weight: 600; }
+
+.article-item .a-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.article-item .a-feed-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 150px;
+}
+
+.article-item .a-star-indicator {
+  color: #f0c040;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+#article-list-footer {
+  padding: 10px;
+  text-align: center;
+  border-top: 1px solid var(--border);
+}
+
+#load-more-btn {
+  width: 100%;
+  padding: 8px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--text);
+  font-size: 13px;
+  transition: background 0.15s;
+}
+#load-more-btn:hover { background: var(--highlight); }
+#load-more-btn:disabled { opacity: 0.5; cursor: default; }
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  text-align: center;
+  gap: 8px;
+}
+.empty-state .empty-icon { font-size: 32px; opacity: 0.5; }
+.empty-state .empty-text { font-size: 13px; }
+
+/* ===== Article Reader ===== */
+#reader {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  min-width: 0;
+}
+
+#reader-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  gap: 12px;
+}
+#reader-placeholder .ph-icon { font-size: 48px; opacity: 0.3; }
+#reader-placeholder .ph-text { font-size: 14px; }
+#reader-placeholder .ph-shortcuts {
+  font-size: 12px;
+  margin-top: 16px;
+  line-height: 1.8;
+  text-align: center;
+}
+#reader-placeholder .ph-shortcuts kbd {
+  display: inline-block;
+  background: var(--accent);
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-family: monospace;
+  font-size: 12px;
+  border: 1px solid var(--border);
+}
+
+#reader-header {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  display: none;
+}
+
+#reader-header .r-title {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-bottom: 8px;
+  color: #fff;
+}
+
+#reader-header .r-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  flex-wrap: wrap;
+}
+
+#reader-header .r-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.r-action-btn {
+  padding: 5px 12px;
+  border-radius: 4px;
+  background: var(--accent);
+  font-size: 12px;
+  transition: background 0.15s;
+  color: var(--text);
+}
+.r-action-btn:hover { background: var(--highlight); }
+.r-action-btn.active { background: var(--highlight); }
+
+#reader-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px 40px;
+  display: none;
+}
+
+/* Article content styling */
+#reader-body .article-content {
+  line-height: 1.7;
+  font-size: 15px;
+  color: var(--text);
+  max-width: 720px;
+}
+
+#reader-body .article-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 12px 0;
+}
+
+#reader-body .article-content pre {
+  background: var(--sidebar);
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 13px;
+  margin: 12px 0;
+}
+
+#reader-body .article-content code {
+  background: var(--sidebar);
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+#reader-body .article-content pre code {
+  background: none;
+  padding: 0;
+}
+
+#reader-body .article-content blockquote {
+  border-left: 3px solid var(--highlight);
+  padding-left: 14px;
+  margin: 12px 0;
+  color: var(--text-dim);
+}
+
+#reader-body .article-content h1,
+#reader-body .article-content h2,
+#reader-body .article-content h3,
+#reader-body .article-content h4,
+#reader-body .article-content h5,
+#reader-body .article-content h6 {
+  margin: 20px 0 10px;
+  color: #fff;
+}
+
+#reader-body .article-content p { margin: 10px 0; }
+#reader-body .article-content ul, #reader-body .article-content ol { padding-left: 24px; margin: 10px 0; }
+#reader-body .article-content li { margin: 4px 0; }
+#reader-body .article-content table { border-collapse: collapse; margin: 12px 0; width: 100%; }
+#reader-body .article-content th, #reader-body .article-content td { border: 1px solid var(--border); padding: 8px; text-align: left; }
+#reader-body .article-content th { background: var(--sidebar); }
+#reader-body .article-content hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+#reader-body .article-content a { color: var(--highlight); }
+
+/* ===== Modal Overlay ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.modal-overlay.open { opacity: 1; pointer-events: auto; }
+
+.modal {
+  background: var(--modal-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  min-width: 360px;
+  max-width: 480px;
+  width: 90%;
+  transform: translateY(10px);
+  transition: transform 0.2s;
+}
+.modal-overlay.open .modal { transform: translateY(0); }
+
+.modal h2 {
+  font-size: 16px;
+  margin-bottom: 16px;
+  color: #fff;
+}
+
+.modal .form-group { margin-bottom: 14px; }
+
+.modal label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.modal input[type="text"],
+.modal input[type="url"],
+.modal select,
+.modal textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.modal input:focus, .modal select:focus, .modal textarea:focus {
+  border-color: var(--highlight);
+}
+
+.modal .btn-row {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.modal .btn {
+  padding: 7px 18px;
+  border-radius: 4px;
+  font-size: 13px;
+  transition: background 0.15s;
+}
+
+.modal .btn-primary { background: var(--highlight); color: #fff; }
+.modal .btn-primary:hover { background: #d63050; }
+.modal .btn-cancel { background: var(--accent); color: var(--text); }
+.modal .btn-cancel:hover { background: #1a4a7a; }
+
+/* ===== Context Menu ===== */
+#context-menu {
+  position: fixed;
+  background: var(--modal-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 0;
+  min-width: 180px;
+  z-index: 600;
+  display: none;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+
+#context-menu .ctx-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 14px;
+  font-size: 13px;
+  transition: background 0.1s;
+}
+#context-menu .ctx-item:hover { background: var(--hover); }
+#context-menu .ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
+
+/* ===== Toast ===== */
+#toast-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 700;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toast {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 13px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  animation: toast-in 0.25s ease;
+  max-width: 320px;
+}
+.toast.error { border-color: var(--highlight); }
+.toast.success { border-color: #2ecc71; }
+.toast.fade-out { animation: toast-out 0.25s ease forwards; }
+
+@keyframes toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes toast-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(10px); } }
+
+/* Spinner */
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--highlight);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Hidden file input */
+#opml-file-input { display: none; }
+
+/* ===== Responsive ===== */
+@media (max-width: 768px) {
+  #reader { display: none; }
+  #article-list { flex: 1; min-width: 0; }
+}
+
+@media (max-width: 480px) {
+  #sidebar { display: none; }
+  #article-list { width: 100%; flex: 1; min-width: 0; border-right: none; }
+}
+
+/* ===== Settings Modal: Toggle Switch ===== */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  vertical-align: middle;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: var(--input-border);
+  border-radius: 24px;
+  transition: background 0.2s;
+}
+.toggle-slider::before {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 3px;
+  bottom: 3px;
+  background: var(--text);
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+.toggle-switch input:checked + .toggle-slider { background: var(--highlight); }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+.toggle-row .toggle-label {
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* Settings modal needs a wider max-width for the form */
+#modal-settings .modal {
+  max-width: 520px;
+}
+
+/* Password input styling (same as text inputs) */
+.modal input[type="password"] {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.modal input[type="password"]:focus {
+  border-color: var(--highlight);
+}
+
+/* ===== AI Summary Box ===== */
+#reader-ai-summary {
+  background: var(--accent);
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+  display: none;
+}
+#reader-ai-summary .ai-summary-label {
+  font-weight: 600;
+  color: var(--highlight);
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+#reader-ai-summary .ai-summary-text {
+  white-space: pre-wrap;
+}
+#reader-ai-summary .ai-summary-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+}
+
+/* ===== Download Link Buttons ===== */
+.download-link {
+  background: var(--accent);
+  padding: 8px 16px;
+  border-radius: 4px;
+  display: inline-block;
+  margin: 8px 4px 8px 0;
+  color: var(--highlight) !important;
+  text-decoration: none !important;
+  font-size: 13px;
+  transition: background 0.15s;
+  border: 1px solid var(--border);
+}
+.download-link:hover {
+  background: var(--highlight);
+  color: #fff !important;
+  text-decoration: none !important;
+}
+
+/* ===== File Size Badge in Article List ===== */
+.a-size-badge {
+  background: var(--accent);
+  color: var(--highlight);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Top Bar -->
+  <div id="topbar">
+    <span class="app-name">FeedFlow</span>
+    <button class="tb-btn" id="btn-refresh-all" title="刷新全部订阅 (Shift+R)">刷新全部</button>
+    <button class="tb-btn" id="btn-add-feed">添加订阅</button>
+    <button class="tb-btn" id="btn-import-opml">导入 OPML</button>
+    <button class="tb-btn" id="btn-export-opml">导出 OPML</button>
+    <button class="tb-btn" id="btn-settings">&#9881; 设置</button>
+    <input type="file" id="opml-file-input" accept=".opml,.xml">
+  </div>
+
+  <div id="main">
+    <!-- Sidebar -->
+    <div id="sidebar">
+      <div class="sidebar-section" id="sidebar-nav">
+        <div class="sidebar-item active" data-view="all" id="nav-all">
+          <span class="icon">&#9776;</span>
+          <span class="label">所有文章</span>
+          <span class="badge zero" id="badge-all">0</span>
+        </div>
+        <div class="sidebar-item" data-view="unread" id="nav-unread">
+          <span class="icon">&#9679;</span>
+          <span class="label">未读</span>
+          <span class="badge zero" id="badge-unread">0</span>
+        </div>
+        <div class="sidebar-item" data-view="starred" id="nav-starred">
+          <span class="icon">&#9733;</span>
+          <span class="label">收藏</span>
+        </div>
+      </div>
+
+      <div class="sidebar-section" id="sidebar-folders"></div>
+      <div class="sidebar-section" id="sidebar-feeds"></div>
+
+      <div class="sidebar-footer">
+        <button class="add-folder-btn" id="btn-add-folder">+ 新建文件夹</button>
+      </div>
+    </div>
+
+    <!-- Article List -->
+    <div id="article-list">
+      <div id="article-list-header">
+        <span class="view-title" id="list-view-title">所有文章</span>
+        <span class="spinner" id="list-spinner" style="display:none;"></span>
+      </div>
+      <div id="article-list-content"></div>
+      <div id="article-list-footer">
+        <button id="load-more-btn" style="display:none;">加载更多</button>
+      </div>
+    </div>
+
+    <!-- Reader -->
+    <div id="reader">
+      <div id="reader-placeholder">
+        <span class="ph-icon">&#128220;</span>
+        <span class="ph-text">选择一篇文章阅读</span>
+        <div class="ph-shortcuts">
+          <kbd>J</kbd> / <kbd>K</kbd> 导航 &nbsp; <kbd>R</kbd> 已读/未读 &nbsp; <kbd>S</kbd> 收藏 &nbsp; <kbd>Shift+R</kbd> 全部刷新
+        </div>
+      </div>
+      <div id="reader-header">
+        <div class="r-title" id="reader-title"></div>
+        <div class="r-meta" id="reader-meta"></div>
+        <div class="r-actions">
+          <button class="r-action-btn" id="btn-toggle-read">标记未读</button>
+          <button class="r-action-btn" id="btn-toggle-star">收藏</button>
+          <a class="r-action-btn" id="btn-open-link" href="#" target="_blank" rel="noopener noreferrer"
+             style="text-decoration:none;display:inline-block;">
+            查看原文
+          </a>
+          <button class="r-action-btn" id="btn-ai-summary">AI 总结</button>
+        </div>
+        <div id="reader-ai-summary">
+          <div class="ai-summary-label">AI 摘要</div>
+          <div class="ai-summary-text"></div>
+          <div class="ai-summary-loading" style="display:none;"><span class="spinner"></span> AI 总结中...</div>
+        </div>
+      </div>
+      <div id="reader-body">
+        <div class="article-content" id="reader-content"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Add Feed -->
+<div class="modal-overlay" id="modal-add-feed">
+  <div class="modal">
+    <h2>添加订阅源</h2>
+    <div class="form-group">
+      <label for="input-feed-url">订阅源地址</label>
+      <input type="url" id="input-feed-url" placeholder="https://example.com/feed.xml">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-cancel" data-close-modal="modal-add-feed">取消</button>
+      <button class="btn btn-primary" id="btn-submit-feed">订阅</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Create Folder -->
+<div class="modal-overlay" id="modal-add-folder">
+  <div class="modal">
+    <h2>创建文件夹</h2>
+    <div class="form-group">
+      <label for="input-folder-name">文件夹名称</label>
+      <input type="text" id="input-folder-name" placeholder="例如：科技、新闻、博客...">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-cancel" data-close-modal="modal-add-folder">取消</button>
+      <button class="btn btn-primary" id="btn-submit-folder">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Move Feed to Folder -->
+<div class="modal-overlay" id="modal-move-feed">
+  <div class="modal">
+    <h2>移动订阅源到文件夹</h2>
+    <div class="form-group">
+      <label for="select-target-folder">选择文件夹</label>
+      <select id="select-target-folder">
+        <option value="">-- 无文件夹（未分组） --</option>
+      </select>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-cancel" data-close-modal="modal-move-feed">取消</button>
+      <button class="btn btn-primary" id="btn-submit-move-feed">移动</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Settings -->
+<div class="modal-overlay" id="modal-settings">
+  <div class="modal">
+    <h2>设置</h2>
+    <div class="form-group">
+      <div class="toggle-row">
+        <span class="toggle-label">启用 AI 功能</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="settings-ai-enabled">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="settings-ai-provider">API 提供商</label>
+      <select id="settings-ai-provider">
+        <option value="openai">OpenAI 兼容（OpenAI/DeepSeek/通义千问/Moonshot等）</option>
+        <option value="claude">Claude API</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="settings-ai-api-url">API 地址</label>
+      <input type="text" id="settings-ai-api-url" placeholder="https://api.openai.com/v1">
+    </div>
+    <div class="form-group">
+      <label for="settings-ai-api-key">API 密钥</label>
+      <input type="password" id="settings-ai-api-key" placeholder="sk-...">
+    </div>
+    <div class="form-group">
+      <label for="settings-ai-model">模型名称</label>
+      <input type="text" id="settings-ai-model" placeholder="gpt-4o-mini">
+    </div>
+    <div class="form-group">
+      <label for="settings-ai-summary-prompt">摘要提示词</label>
+      <textarea id="settings-ai-summary-prompt" rows="3" placeholder="请用中文总结这篇文章的主要内容..."></textarea>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-cancel" data-close-modal="modal-settings">取消</button>
+      <button class="btn btn-primary" id="btn-submit-settings">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Context Menu -->
+<div id="context-menu">
+  <button class="ctx-item" id="ctx-refresh-feed">刷新订阅</button>
+  <button class="ctx-item" id="ctx-mark-all-read">全部已读</button>
+  <div class="ctx-sep"></div>
+  <button class="ctx-item" id="ctx-move-to-folder">移到文件夹</button>
+  <div class="ctx-sep"></div>
+  <button class="ctx-item" id="ctx-unsubscribe" style="color:var(--highlight);">取消订阅</button>
+</div>
+
+<!-- Toasts -->
+<div id="toast-container"></div>
+
+<script>
+(function() {
+  "use strict";
+
+  /* =====================================================================
+     Application State
+     ===================================================================== */
+  var state = {
+    feeds: [],
+    folders: [],
+    articles: [],
+    stats: { feeds: 0, articles: 0, unread: 0 },
+    currentView: "all",
+    currentArticle: null,
+    articleOffset: 0,
+    articleLimit: 50,
+    hasMoreArticles: true,
+    selectedArticleIndex: -1,
+    folderFeeds: {},
+    contextFeedId: null,
+    contextFeedFolderId: null,
+    collapsedFolders: {},
+    loading: false,
+    feedMap: {}
+  };
+
+  /* =====================================================================
+     DOM References (cached once for performance)
+     ===================================================================== */
+  var dom = {
+    badgeAll: document.getElementById("badge-all"),
+    badgeUnread: document.getElementById("badge-unread"),
+    sidebarFolders: document.getElementById("sidebar-folders"),
+    sidebarFeeds: document.getElementById("sidebar-feeds"),
+    listViewTitle: document.getElementById("list-view-title"),
+    listSpinner: document.getElementById("list-spinner"),
+    listContent: document.getElementById("article-list-content"),
+    loadMoreBtn: document.getElementById("load-more-btn"),
+    readerPlaceholder: document.getElementById("reader-placeholder"),
+    readerHeader: document.getElementById("reader-header"),
+    readerBody: document.getElementById("reader-body"),
+    readerTitle: document.getElementById("reader-title"),
+    readerMeta: document.getElementById("reader-meta"),
+    readerContent: document.getElementById("reader-content"),
+    btnToggleRead: document.getElementById("btn-toggle-read"),
+    btnToggleStar: document.getElementById("btn-toggle-star"),
+    btnOpenLink: document.getElementById("btn-open-link"),
+    ctxMenu: document.getElementById("context-menu"),
+    toastContainer: document.getElementById("toast-container"),
+    feedUrlInput: document.getElementById("input-feed-url"),
+    folderNameInput: document.getElementById("input-folder-name"),
+    targetFolderSelect: document.getElementById("select-target-folder"),
+    opmlFileInput: document.getElementById("opml-file-input"),
+    btnRefreshAll: document.getElementById("btn-refresh-all"),
+    btnAiSummary: document.getElementById("btn-ai-summary"),
+    aiSummaryBox: document.getElementById("reader-ai-summary"),
+    aiSummaryText: document.querySelector("#reader-ai-summary .ai-summary-text"),
+    aiSummaryLoading: document.querySelector("#reader-ai-summary .ai-summary-loading"),
+    settingsAiEnabled: document.getElementById("settings-ai-enabled"),
+    settingsAiProvider: document.getElementById("settings-ai-provider"),
+    settingsAiApiUrl: document.getElementById("settings-ai-api-url"),
+    settingsAiApiKey: document.getElementById("settings-ai-api-key"),
+    settingsAiModel: document.getElementById("settings-ai-model"),
+    settingsAiSummaryPrompt: document.getElementById("settings-ai-summary-prompt")
+  };
+
+  /* =====================================================================
+     API Helper
+     ===================================================================== */
+  function api(method, path, body) {
+    var opts = { method: method, headers: {} };
+    if (body !== undefined) {
+      opts.headers["Content-Type"] = "application/json";
+      opts.body = JSON.stringify(body);
+    }
+    return fetch(path, opts).then(function(res) {
+      if (path === "/api/opml/export") {
+        return res.text().then(function(text) {
+          if (!res.ok) throw new Error(text || "Export failed");
+          return text;
+        });
+      }
+      return res.json().then(function(json) {
+        if (!res.ok || json.success === false) {
+          throw new Error(json.error || "Request failed");
+        }
+        return json.data;
+      });
+    });
+  }
+
+  /* =====================================================================
+     Toast Notifications
+     ===================================================================== */
+  function toast(msg, type) {
+    var el = document.createElement("div");
+    el.className = "toast " + (type || "");
+    el.textContent = msg;
+    dom.toastContainer.appendChild(el);
+    setTimeout(function() {
+      el.classList.add("fade-out");
+      setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 300);
+    }, 3000);
+  }
+
+  /* =====================================================================
+     Modal Helpers
+     ===================================================================== */
+  function openModal(id) {
+    document.getElementById(id).classList.add("open");
+    var inp = document.querySelector("#" + id + " input, #" + id + " select");
+    if (inp) setTimeout(function() { inp.focus(); }, 100);
+  }
+
+  function closeModal(id) {
+    document.getElementById(id).classList.remove("open");
+  }
+
+  function closeAllModals() {
+    var modals = document.querySelectorAll(".modal-overlay.open");
+    for (var i = 0; i < modals.length; i++) {
+      modals[i].classList.remove("open");
+    }
+  }
+
+  /* =====================================================================
+     Date Formatting
+     ===================================================================== */
+  function relativeDate(dateStr) {
+    if (!dateStr) return "";
+    var d = new Date(dateStr);
+    var now = new Date();
+    var diff = Math.floor((now - d) / 1000);
+    if (diff < 0) return "刚刚";
+    if (diff < 60) return "刚刚";
+    if (diff < 3600) return Math.floor(diff / 60) + " 分钟前";
+    if (diff < 86400) return Math.floor(diff / 3600) + " 小时前";
+    if (diff < 604800) return Math.floor(diff / 86400) + " 天前";
+    var opts = { month: "short", day: "numeric" };
+    if (d.getFullYear() !== now.getFullYear()) opts.year = "numeric";
+    return d.toLocaleDateString(undefined, opts);
+  }
+
+  function formatDate(dateStr) {
+    if (!dateStr) return "";
+    var d = new Date(dateStr);
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }) +
+      " " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  }
+
+  /* =====================================================================
+     HTML Escaping & Sanitization
+     ===================================================================== */
+  function escapeHtml(str) {
+    if (!str) return "";
+    var div = document.createElement("div");
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+  }
+
+  function sanitizeHtml(html) {
+    var temp = document.createElement("div");
+    temp.innerHTML = html;
+
+    var dangerousTags = temp.querySelectorAll("script, style, iframe, object, embed, form, base, meta, link");
+    for (var i = dangerousTags.length - 1; i >= 0; i--) {
+      dangerousTags[i].parentNode.removeChild(dangerousTags[i]);
+    }
+
+    var allEls = temp.querySelectorAll("*");
+    for (var j = 0; j < allEls.length; j++) {
+      var el = allEls[j];
+      var attrs = [];
+      for (var k = 0; k < el.attributes.length; k++) {
+        attrs.push(el.attributes[k].name);
+      }
+      for (var m = 0; m < attrs.length; m++) {
+        var attrName = attrs[m];
+        if (attrName.indexOf("on") === 0 || attrName === "srcdoc" || attrName === "formaction") {
+          el.removeAttribute(attrName);
+          continue;
+        }
+        if (attrName === "href" || attrName === "src" || attrName === "action" || attrName === "poster") {
+          var val = (el.getAttribute(attrName) || "").trim().toLowerCase();
+          if (val.indexOf("javascript:") === 0 || val.indexOf("data:text/html") === 0 || val.indexOf("vbscript:") === 0) {
+            el.removeAttribute(attrName);
+          }
+        }
+      }
+      if (el.tagName === "A" && el.getAttribute("href")) {
+        el.setAttribute("target", "_blank");
+        el.setAttribute("rel", "noopener noreferrer");
+      }
+    }
+    return temp.innerHTML;
+  }
+
+  /* =====================================================================
+     Render: Stat Badges
+     ===================================================================== */
+  function updateBadges() {
+    var unread = state.stats.unread || 0;
+    dom.badgeAll.textContent = unread;
+    dom.badgeAll.className = "badge" + (unread === 0 ? " zero" : "");
+    dom.badgeUnread.textContent = unread;
+    dom.badgeUnread.className = "badge" + (unread === 0 ? " zero" : "");
+  }
+
+  /* =====================================================================
+     Render: Sidebar
+     ===================================================================== */
+  function buildFeedMap() {
+    state.feedMap = {};
+    for (var i = 0; i < state.feeds.length; i++) {
+      state.feedMap[state.feeds[i].id] = state.feeds[i];
+    }
+  }
+
+  function makeFeedItemHtml(feed, isActive, extraFolderId) {
+    var iconHtml;
+    if (feed.icon_url) {
+      iconHtml = '<img class="feed-icon" src="' + escapeHtml(feed.icon_url) +
+        '" alt="" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">' +
+        '<span class="icon" style="font-size:12px;display:none;">&#9673;</span>';
+    } else {
+      iconHtml = '<span class="icon" style="font-size:12px;">&#9673;</span>';
+    }
+    var folderAttr = extraFolderId ? ' data-folder-id="' + extraFolderId + '"' : '';
+    return '<div class="sidebar-item' + (isActive ? " active" : "") +
+      '" data-view="feed:' + feed.id + '" data-feed-id="' + feed.id + '"' + folderAttr + '>' +
+      iconHtml +
+      '<span class="label">' + escapeHtml(feed.title || feed.url) + '</span>' +
+      '</div>';
+  }
+
+  function renderSidebar() {
+    buildFeedMap();
+
+    /* Track which feeds appear in folders */
+    var feedsInFolders = {};
+    for (var fi = 0; fi < state.folders.length; fi++) {
+      var fids = state.folderFeeds[state.folders[fi].id] || [];
+      for (var fj = 0; fj < fids.length; fj++) {
+        feedsInFolders[fids[fj]] = true;
+      }
+    }
+
+    /* Render folders */
+    var foldersHtml = "";
+    for (var i = 0; i < state.folders.length; i++) {
+      var folder = state.folders[i];
+      var feedIds = state.folderFeeds[folder.id] || [];
+      var collapsed = !!state.collapsedFolders[folder.id];
+
+      foldersHtml += '<div class="folder-header" data-folder-id="' + folder.id + '">' +
+        '<span class="chevron' + (collapsed ? " collapsed" : "") + '">&#9660;</span>' +
+        '<span class="folder-name">' + escapeHtml(folder.name) + '</span>' +
+        '<span class="badge' + (feedIds.length === 0 ? " zero" : "") + '">' + feedIds.length + '</span>' +
+        '</div>';
+
+      var maxH = collapsed ? 0 : (feedIds.length * 42 + 10);
+      foldersHtml += '<div class="folder-feeds' + (collapsed ? " collapsed" : "") +
+        '" data-folder-id="' + folder.id + '" style="max-height:' + maxH + 'px;">';
+      for (var k = 0; k < feedIds.length; k++) {
+        var feed = state.feedMap[feedIds[k]];
+        if (!feed) continue;
+        var isActive = state.currentView === "feed:" + feed.id;
+        foldersHtml += makeFeedItemHtml(feed, isActive, folder.id);
+      }
+      foldersHtml += '</div>';
+    }
+    dom.sidebarFolders.innerHTML = foldersHtml;
+
+    /* Render ungrouped feeds */
+    var feedsHtml = "";
+    for (var u = 0; u < state.feeds.length; u++) {
+      var uf = state.feeds[u];
+      if (feedsInFolders[uf.id]) continue;
+      var uActive = state.currentView === "feed:" + uf.id;
+      feedsHtml += makeFeedItemHtml(uf, uActive, null);
+    }
+    dom.sidebarFeeds.innerHTML = feedsHtml;
+  }
+
+  /* =====================================================================
+     Render: Article List
+     ===================================================================== */
+  function renderArticleList(append) {
+    if (!append) {
+      dom.listContent.innerHTML = "";
+    }
+
+    if (state.articles.length === 0 && !append) {
+      dom.listContent.innerHTML =
+        '<div class="empty-state">' +
+        '<span class="empty-icon">&#128240;</span>' +
+        '<span class="empty-text">暂无文章</span>' +
+        '</div>';
+      dom.loadMoreBtn.style.display = "none";
+      return;
+    }
+
+    var startIdx = append ? dom.listContent.querySelectorAll(".article-item").length : 0;
+    var html = "";
+    for (var i = startIdx; i < state.articles.length; i++) {
+      var a = state.articles[i];
+      var feedName = "";
+      if (state.feedMap[a.feed_id]) {
+        feedName = state.feedMap[a.feed_id].title || state.feedMap[a.feed_id].url || "";
+      }
+      var isActive = state.currentArticle && state.currentArticle.id === a.id;
+
+      /* Extract file size badge from summary/description, e.g. [1.2 GB] or [850 MB] */
+      var sizeBadge = "";
+      var sizeSource = a.summary || a.content_text || "";
+      var sizeMatch = sizeSource.match(/\[(\d+(?:\.\d+)?\s*(?:GB|MB|TB|KB))\]/i);
+      if (sizeMatch) {
+        sizeBadge = '<span class="a-size-badge">' + escapeHtml(sizeMatch[1]) + '</span>';
+      }
+
+      html += '<div class="article-item' +
+        (!a.is_read ? " unread" : "") +
+        (isActive ? " active" : "") +
+        '" data-article-index="' + i + '" data-article-id="' + a.id + '">' +
+        '<div class="a-title">' + escapeHtml(a.title || "（无标题）") + '</div>' +
+        '<div class="a-meta">' +
+        '<span class="a-feed-name">' + escapeHtml(feedName) + '</span>' +
+        '<span>&middot;</span>' +
+        '<span>' + relativeDate(a.published_at || a.created_at) + '</span>' +
+        sizeBadge +
+        (a.is_starred ? '<span class="a-star-indicator">&#9733;</span>' : '') +
+        '</div>' +
+        '</div>';
+    }
+    if (append) {
+      dom.listContent.insertAdjacentHTML("beforeend", html);
+    } else {
+      dom.listContent.innerHTML = html;
+    }
+
+    dom.loadMoreBtn.style.display = state.hasMoreArticles ? "block" : "none";
+  }
+
+  /* =====================================================================
+     Render: Article Reader
+     ===================================================================== */
+  function renderReader() {
+    var a = state.currentArticle;
+
+    if (!a) {
+      dom.readerPlaceholder.style.display = "flex";
+      dom.readerHeader.style.display = "none";
+      dom.readerBody.style.display = "none";
+      /* Hide AI summary when no article selected */
+      dom.aiSummaryBox.style.display = "none";
+      return;
+    }
+
+    dom.readerPlaceholder.style.display = "none";
+    dom.readerHeader.style.display = "block";
+    dom.readerBody.style.display = "block";
+
+    dom.readerTitle.textContent = a.title || "（无标题）";
+
+    var feedName = "";
+    if (state.feedMap[a.feed_id]) {
+      feedName = state.feedMap[a.feed_id].title || "";
+    }
+
+    var metaParts = [];
+    if (a.author) metaParts.push("by " + escapeHtml(a.author));
+    if (feedName) metaParts.push("from " + escapeHtml(feedName));
+    metaParts.push(formatDate(a.published_at || a.created_at));
+    dom.readerMeta.innerHTML = metaParts.join(" &middot; ");
+
+    if (a.url) {
+      dom.btnOpenLink.href = a.url;
+      dom.btnOpenLink.style.display = "inline-block";
+    } else {
+      dom.btnOpenLink.style.display = "none";
+    }
+
+    updateReaderButtons();
+
+    if (a.content_html) {
+      dom.readerContent.innerHTML = sanitizeHtml(a.content_html);
+    } else if (a.content_text) {
+      dom.readerContent.innerHTML = "<p>" + escapeHtml(a.content_text).replace(/\n/g, "<br>") + "</p>";
+    } else if (a.summary) {
+      dom.readerContent.innerHTML = "<p>" + escapeHtml(a.summary).replace(/\n/g, "<br>") + "</p>";
+    } else {
+      dom.readerContent.innerHTML = '<p style="color:var(--text-muted);">暂无内容</p>';
+    }
+
+    /* Style torrent/magnet download links as buttons */
+    styleDownloadLinks();
+
+    /* Show AI summary if already available from API data */
+    if (a.ai_summary) {
+      dom.aiSummaryText.textContent = a.ai_summary;
+      dom.aiSummaryText.style.display = "block";
+      dom.aiSummaryLoading.style.display = "none";
+      dom.aiSummaryBox.style.display = "block";
+    } else {
+      dom.aiSummaryText.textContent = "";
+      dom.aiSummaryText.style.display = "none";
+      dom.aiSummaryLoading.style.display = "none";
+      dom.aiSummaryBox.style.display = "none";
+    }
+
+    /* Scroll reader body to top */
+    dom.readerBody.scrollTop = 0;
+  }
+
+  /* Style .torrent and magnet: links as download buttons */
+  function styleDownloadLinks() {
+    var links = dom.readerContent.querySelectorAll("a[href]");
+    for (var i = 0; i < links.length; i++) {
+      var href = (links[i].getAttribute("href") || "").toLowerCase();
+      if (href.indexOf(".torrent") !== -1 || href.indexOf("magnet:") === 0) {
+        links[i].classList.add("download-link");
+      }
+    }
+  }
+
+  function updateReaderButtons() {
+    var a = state.currentArticle;
+    if (!a) return;
+    dom.btnToggleRead.textContent = a.is_read ? "标记未读" : "标记已读";
+    dom.btnToggleRead.classList.toggle("active", !a.is_read);
+    dom.btnToggleStar.textContent = a.is_starred ? "取消收藏" : "收藏";
+    dom.btnToggleStar.classList.toggle("active", a.is_starred);
+  }
+
+  /* =====================================================================
+     Data Loading
+     ===================================================================== */
+  function loadStats() {
+    return api("GET", "/api/stats").then(function(data) {
+      state.stats = data || { feeds: 0, articles: 0, unread: 0 };
+      updateBadges();
+    }).catch(function() {});
+  }
+
+  function loadFeeds() {
+    return api("GET", "/api/feeds").then(function(data) {
+      state.feeds = data || [];
+      buildFeedMap();
+    }).catch(function(err) {
+      toast("加载订阅失败: " + err.message, "error");
+    });
+  }
+
+  function loadFolders() {
+    return api("GET", "/api/folders").then(function(data) {
+      state.folders = data || [];
+      /* Initialize any new folders in folderFeeds map */
+      for (var i = 0; i < state.folders.length; i++) {
+        if (!state.folderFeeds[state.folders[i].id]) {
+          state.folderFeeds[state.folders[i].id] = [];
+        }
+      }
+    }).catch(function(err) {
+      toast("加载文件夹失败: " + err.message, "error");
+    });
+  }
+
+  function loadArticles(append) {
+    if (state.loading) return Promise.resolve();
+    state.loading = true;
+    dom.listSpinner.style.display = "inline-block";
+
+    var offset = append ? state.articleOffset : 0;
+    var view = state.currentView;
+    var urlPath;
+    var filterStarred = false;
+
+    if (view === "all") {
+      urlPath = "/api/articles?limit=" + state.articleLimit + "&offset=" + offset;
+    } else if (view === "unread") {
+      urlPath = "/api/articles/unread?limit=" + state.articleLimit + "&offset=" + offset;
+    } else if (view === "starred") {
+      /* No dedicated starred endpoint -- fetch a larger batch and filter.
+         We over-fetch to compensate for filtering. */
+      urlPath = "/api/articles?limit=" + (state.articleLimit * 4) + "&offset=" + offset;
+      filterStarred = true;
+    } else if (view.indexOf("feed:") === 0) {
+      var feedId = view.substring(5);
+      urlPath = "/api/feeds/" + feedId + "/articles?limit=" + state.articleLimit + "&offset=" + offset;
+    } else {
+      state.loading = false;
+      dom.listSpinner.style.display = "none";
+      return Promise.resolve();
+    }
+
+    return api("GET", urlPath).then(function(data) {
+      var rawArticles = data || [];
+      var articles = rawArticles;
+
+      if (filterStarred) {
+        articles = [];
+        for (var i = 0; i < rawArticles.length; i++) {
+          if (rawArticles[i].is_starred) articles.push(rawArticles[i]);
+        }
+      }
+
+      if (append) {
+        for (var j = 0; j < articles.length; j++) {
+          state.articles.push(articles[j]);
+        }
+      } else {
+        state.articles = articles;
+        state.selectedArticleIndex = -1;
+      }
+
+      state.articleOffset = offset + rawArticles.length;
+      state.hasMoreArticles = rawArticles.length >= (filterStarred ? state.articleLimit * 4 : state.articleLimit);
+
+      renderArticleList(append);
+    }).catch(function(err) {
+      toast("加载文章失败: " + err.message, "error");
+    }).finally(function() {
+      state.loading = false;
+      dom.listSpinner.style.display = "none";
+    });
+  }
+
+  function switchView(view, title) {
+    state.currentView = view;
+    state.articleOffset = 0;
+    state.hasMoreArticles = true;
+    state.currentArticle = null;
+
+    dom.listViewTitle.textContent = title || "文章";
+    renderReader();
+
+    /* Update sidebar active state for nav items */
+    var navItems = document.querySelectorAll("#sidebar-nav .sidebar-item");
+    for (var i = 0; i < navItems.length; i++) {
+      navItems[i].classList.toggle("active", navItems[i].getAttribute("data-view") === view);
+    }
+
+    /* Refresh sidebar to update feed highlighting */
+    renderSidebar();
+
+    loadArticles(false);
+  }
+
+  function refreshAll() {
+    dom.btnRefreshAll.disabled = true;
+    dom.btnRefreshAll.textContent = "刷新中...";
+    api("POST", "/api/refresh").then(function() {
+      toast("所有订阅已刷新", "success");
+      return reloadEverything();
+    }).catch(function(err) {
+      toast("刷新失败: " + err.message, "error");
+    }).finally(function() {
+      dom.btnRefreshAll.disabled = false;
+      dom.btnRefreshAll.textContent = "刷新全部";
+    });
+  }
+
+  function reloadEverything() {
+    return Promise.all([loadStats(), loadFeeds(), loadFolders()]).then(function() {
+      renderSidebar();
+      return loadArticles(false);
+    });
+  }
+
+  /* =====================================================================
+     Article Actions
+     ===================================================================== */
+  function selectArticle(index) {
+    if (index < 0 || index >= state.articles.length) return;
+    state.selectedArticleIndex = index;
+    var article = state.articles[index];
+    state.currentArticle = article;
+
+    /* Auto-mark as read */
+    if (!article.is_read) {
+      article.is_read = true;
+      api("PUT", "/api/articles/" + article.id + "/read", { is_read: true }).then(function() {
+        loadStats();
+      }).catch(function() {});
+    }
+
+    renderArticleList(false);
+    renderReader();
+  }
+
+  function toggleCurrentRead() {
+    var a = state.currentArticle;
+    if (!a) return;
+    var newVal = !a.is_read;
+    a.is_read = newVal;
+    api("PUT", "/api/articles/" + a.id + "/read", { is_read: newVal }).then(function() {
+      loadStats();
+    }).catch(function(err) {
+      toast("操作失败: " + err.message, "error");
+      a.is_read = !newVal;
+      updateReaderButtons();
+      renderArticleList(false);
+    });
+    updateReaderButtons();
+    renderArticleList(false);
+  }
+
+  function toggleCurrentStar() {
+    var a = state.currentArticle;
+    if (!a) return;
+    var newVal = !a.is_starred;
+    a.is_starred = newVal;
+    api("PUT", "/api/articles/" + a.id + "/star", { is_starred: newVal }).then(function() {
+    }).catch(function(err) {
+      toast("操作失败: " + err.message, "error");
+      a.is_starred = !newVal;
+      updateReaderButtons();
+      renderArticleList(false);
+    });
+    updateReaderButtons();
+    renderArticleList(false);
+  }
+
+  /* =====================================================================
+     Feed Actions
+     ===================================================================== */
+  function subscribeFeed(url) {
+    if (!url || !url.trim()) {
+      toast("请输入订阅源地址", "error");
+      return;
+    }
+    api("POST", "/api/feeds", { url: url.trim() }).then(function() {
+      toast("订阅成功", "success");
+      closeModal("modal-add-feed");
+      dom.feedUrlInput.value = "";
+      reloadEverything();
+    }).catch(function(err) {
+      toast("订阅失败: " + err.message, "error");
+    });
+  }
+
+  function unsubscribeFeed(feedId) {
+    if (!confirm("确定取消订阅？该订阅源的所有文章将被删除。")) return;
+    api("DELETE", "/api/feeds/" + feedId).then(function() {
+      toast("已取消订阅", "success");
+      /* Clean up folder references */
+      var folderIds = Object.keys(state.folderFeeds);
+      for (var i = 0; i < folderIds.length; i++) {
+        var arr = state.folderFeeds[folderIds[i]];
+        var idx = arr.indexOf(feedId);
+        if (idx !== -1) arr.splice(idx, 1);
+      }
+      /* If viewing this feed, switch to all */
+      if (state.currentView === "feed:" + feedId) {
+        switchView("all", "所有文章");
+      }
+      reloadEverything();
+    }).catch(function(err) {
+      toast("操作失败: " + err.message, "error");
+    });
+  }
+
+  function refreshFeed(feedId) {
+    api("POST", "/api/feeds/" + feedId + "/refresh").then(function() {
+      toast("订阅已刷新", "success");
+      if (state.currentView === "feed:" + feedId) {
+        loadArticles(false);
+      }
+      loadStats();
+    }).catch(function(err) {
+      toast("刷新失败: " + err.message, "error");
+    });
+  }
+
+  function markAllRead(feedId) {
+    api("POST", "/api/feeds/" + feedId + "/read-all").then(function() {
+      toast("已全部标记为已读", "success");
+      loadStats();
+      loadArticles(false);
+    }).catch(function(err) {
+      toast("操作失败: " + err.message, "error");
+    });
+  }
+
+  /* =====================================================================
+     Folder Actions
+     ===================================================================== */
+  function createFolder(name) {
+    if (!name || !name.trim()) {
+      toast("请输入文件夹名称", "error");
+      return;
+    }
+    api("POST", "/api/folders", { name: name.trim() }).then(function(folder) {
+      toast("文件夹已创建", "success");
+      closeModal("modal-add-folder");
+      dom.folderNameInput.value = "";
+      if (folder && folder.id) {
+        state.folderFeeds[folder.id] = [];
+      }
+      return loadFolders().then(function() { renderSidebar(); });
+    }).catch(function(err) {
+      toast("操作失败: " + err.message, "error");
+    });
+  }
+
+  function moveFeedToFolder(feedId, targetFolderId, currentFolderId) {
+    /* Step 1: remove from current folder if needed */
+    var removePromise = Promise.resolve();
+    if (currentFolderId) {
+      removePromise = api("DELETE", "/api/folders/" + currentFolderId + "/feeds/" + feedId).then(function() {
+        var arr = state.folderFeeds[currentFolderId];
+        if (arr) {
+          var idx = arr.indexOf(feedId);
+          if (idx !== -1) arr.splice(idx, 1);
+        }
+      }).catch(function() {
+        /* If remove fails (feed might not actually be in folder), continue anyway */
+      });
+    }
+
+    removePromise.then(function() {
+      if (!targetFolderId) {
+        toast("已移出文件夹", "success");
+        renderSidebar();
+        return;
+      }
+      return api("POST", "/api/folders/" + targetFolderId + "/feeds/" + feedId).then(function() {
+        if (!state.folderFeeds[targetFolderId]) {
+          state.folderFeeds[targetFolderId] = [];
+        }
+        if (state.folderFeeds[targetFolderId].indexOf(feedId) === -1) {
+          state.folderFeeds[targetFolderId].push(feedId);
+        }
+        toast("已移到文件夹", "success");
+        renderSidebar();
+      });
+    }).catch(function(err) {
+      toast("移动失败: " + err.message, "error");
+    });
+  }
+
+  /* =====================================================================
+     OPML Import / Export
+     ===================================================================== */
+  function importOPML(fileContent) {
+    api("POST", "/api/opml/import", { xml: fileContent }).then(function() {
+      toast("OPML 导入成功", "success");
+      reloadEverything();
+    }).catch(function(err) {
+      toast("导入失败: " + err.message, "error");
+    });
+  }
+
+  function exportOPML() {
+    api("GET", "/api/opml/export").then(function(xml) {
+      var blob = new Blob([xml], { type: "application/xml" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "feedflow-export.opml";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast("OPML 已导出", "success");
+    }).catch(function(err) {
+      toast("导出失败: " + err.message, "error");
+    });
+  }
+
+  /* =====================================================================
+     Context Menu
+     ===================================================================== */
+  function showContextMenu(x, y, feedId, folderId) {
+    state.contextFeedId = feedId;
+    state.contextFeedFolderId = folderId || null;
+    dom.ctxMenu.style.display = "block";
+
+    /* Ensure menu fits within viewport */
+    var menuRect = dom.ctxMenu.getBoundingClientRect();
+    var winW = window.innerWidth;
+    var winH = window.innerHeight;
+    if (x + menuRect.width > winW) x = winW - menuRect.width - 8;
+    if (y + menuRect.height > winH) y = winH - menuRect.height - 8;
+    if (x < 0) x = 4;
+    if (y < 0) y = 4;
+
+    dom.ctxMenu.style.left = x + "px";
+    dom.ctxMenu.style.top = y + "px";
+  }
+
+  function hideContextMenu() {
+    dom.ctxMenu.style.display = "none";
+    state.contextFeedId = null;
+    state.contextFeedFolderId = null;
+  }
+
+  /* =====================================================================
+     Scroll helpers
+     ===================================================================== */
+  function scrollArticleIntoView(idx) {
+    var items = dom.listContent.querySelectorAll(".article-item");
+    if (items[idx]) {
+      items[idx].scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }
+
+  /* =====================================================================
+     Settings Management
+     ===================================================================== */
+  function loadSettings() {
+    return api("GET", "/api/settings").then(function(data) {
+      if (!data) return;
+      dom.settingsAiEnabled.checked = !!data.ai_enabled;
+      dom.settingsAiProvider.value = data.ai_provider || "openai";
+      dom.settingsAiApiUrl.value = data.ai_api_url || "";
+      dom.settingsAiApiKey.value = data.ai_api_key || "";
+      dom.settingsAiModel.value = data.ai_model || "";
+      dom.settingsAiSummaryPrompt.value = data.ai_summary_prompt || "";
+    }).catch(function() {
+      /* Settings endpoint may not exist yet -- silently ignore */
+    });
+  }
+
+  function saveSettings() {
+    var payload = {
+      ai_enabled: dom.settingsAiEnabled.checked,
+      ai_provider: dom.settingsAiProvider.value,
+      ai_api_url: dom.settingsAiApiUrl.value.trim(),
+      ai_api_key: dom.settingsAiApiKey.value,
+      ai_model: dom.settingsAiModel.value.trim(),
+      ai_summary_prompt: dom.settingsAiSummaryPrompt.value
+    };
+    api("PUT", "/api/settings", payload).then(function() {
+      toast("设置已保存", "success");
+      closeModal("modal-settings");
+    }).catch(function(err) {
+      toast("保存设置失败: " + err.message, "error");
+    });
+  }
+
+  /* =====================================================================
+     AI Summary
+     ===================================================================== */
+  function requestAiSummary() {
+    var a = state.currentArticle;
+    if (!a) return;
+
+    /* Show loading state */
+    dom.aiSummaryBox.style.display = "block";
+    dom.aiSummaryText.style.display = "none";
+    dom.aiSummaryLoading.style.display = "flex";
+
+    api("POST", "/api/articles/" + a.id + "/summarize").then(function(data) {
+      var summary = data && data.summary ? data.summary : "";
+      /* Cache the summary on the article object so re-selecting shows it immediately */
+      a.ai_summary = summary;
+
+      dom.aiSummaryText.textContent = summary;
+      dom.aiSummaryText.style.display = "block";
+      dom.aiSummaryLoading.style.display = "none";
+    }).catch(function(err) {
+      dom.aiSummaryText.textContent = "AI 总结失败: " + err.message;
+      dom.aiSummaryText.style.display = "block";
+      dom.aiSummaryLoading.style.display = "none";
+      toast("AI 总结失败: " + err.message, "error");
+    });
+  }
+
+  /* =====================================================================
+     Event Binding
+     ===================================================================== */
+
+  /* -- Top bar -- */
+  dom.btnRefreshAll.addEventListener("click", refreshAll);
+
+  document.getElementById("btn-add-feed").addEventListener("click", function() {
+    openModal("modal-add-feed");
+  });
+
+  document.getElementById("btn-import-opml").addEventListener("click", function() {
+    dom.opmlFileInput.click();
+  });
+
+  dom.opmlFileInput.addEventListener("change", function(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      importOPML(ev.target.result);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  });
+
+  document.getElementById("btn-export-opml").addEventListener("click", exportOPML);
+
+  /* -- Settings button -- */
+  document.getElementById("btn-settings").addEventListener("click", function() {
+    loadSettings().then(function() {
+      openModal("modal-settings");
+    });
+  });
+
+  document.getElementById("btn-submit-settings").addEventListener("click", saveSettings);
+
+  /* -- AI Summary button -- */
+  dom.btnAiSummary.addEventListener("click", requestAiSummary);
+
+  /* -- Modal: Add Feed -- */
+  document.getElementById("btn-submit-feed").addEventListener("click", function() {
+    subscribeFeed(dom.feedUrlInput.value);
+  });
+
+  dom.feedUrlInput.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") subscribeFeed(this.value);
+  });
+
+  /* -- Modal: Add Folder -- */
+  document.getElementById("btn-submit-folder").addEventListener("click", function() {
+    createFolder(dom.folderNameInput.value);
+  });
+
+  dom.folderNameInput.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") createFolder(this.value);
+  });
+
+  /* -- Modal: Move Feed -- */
+  document.getElementById("btn-submit-move-feed").addEventListener("click", function() {
+    var targetFolderId = dom.targetFolderSelect.value;
+    if (state.contextFeedId) {
+      moveFeedToFolder(state.contextFeedId, targetFolderId || null, state.contextFeedFolderId);
+      closeModal("modal-move-feed");
+    }
+  });
+
+  /* -- Sidebar: New Folder button -- */
+  document.getElementById("btn-add-folder").addEventListener("click", function() {
+    openModal("modal-add-folder");
+  });
+
+  /* -- Modal close buttons -- */
+  var closeButtons = document.querySelectorAll("[data-close-modal]");
+  for (var ci = 0; ci < closeButtons.length; ci++) {
+    closeButtons[ci].addEventListener("click", function() {
+      closeModal(this.getAttribute("data-close-modal"));
+    });
+  }
+
+  /* -- Close modals on overlay click -- */
+  var overlays = document.querySelectorAll(".modal-overlay");
+  for (var oi = 0; oi < overlays.length; oi++) {
+    overlays[oi].addEventListener("click", function(e) {
+      if (e.target === this) closeAllModals();
+    });
+  }
+
+  /* -- Sidebar: Navigation items -- */
+  document.getElementById("sidebar-nav").addEventListener("click", function(e) {
+    var item = e.target.closest ? e.target.closest(".sidebar-item") : findParent(e.target, "sidebar-item");
+    if (!item) return;
+    var view = item.getAttribute("data-view");
+    var titles = { all: "所有文章", unread: "未读", starred: "收藏" };
+    switchView(view, titles[view] || "文章");
+  });
+
+  /* -- Sidebar: Folders & folder feeds (delegated) -- */
+  dom.sidebarFolders.addEventListener("click", function(e) {
+    var folderHeader = e.target.closest ? e.target.closest(".folder-header") : findParent(e.target, "folder-header");
+    if (folderHeader) {
+      var folderId = folderHeader.getAttribute("data-folder-id");
+      state.collapsedFolders[folderId] = !state.collapsedFolders[folderId];
+      var chevron = folderHeader.querySelector(".chevron");
+      if (chevron) chevron.classList.toggle("collapsed");
+      var feedsContainer = document.querySelector('.folder-feeds[data-folder-id="' + folderId + '"]');
+      if (feedsContainer) {
+        feedsContainer.classList.toggle("collapsed");
+        if (!feedsContainer.classList.contains("collapsed")) {
+          var count = feedsContainer.querySelectorAll(".sidebar-item").length;
+          feedsContainer.style.maxHeight = (count * 42 + 10) + "px";
+        }
+      }
+      return;
+    }
+
+    var feedItem = e.target.closest ? e.target.closest(".sidebar-item") : findParent(e.target, "sidebar-item");
+    if (feedItem && feedItem.getAttribute("data-view")) {
+      var feedId = feedItem.getAttribute("data-feed-id");
+      var feed = state.feedMap[feedId];
+      var title = feed ? (feed.title || feed.url) : "订阅源";
+      switchView(feedItem.getAttribute("data-view"), title);
+    }
+  });
+
+  /* -- Sidebar: Right-click context menu on folder feeds -- */
+  dom.sidebarFolders.addEventListener("contextmenu", function(e) {
+    var feedItem = e.target.closest ? e.target.closest(".sidebar-item[data-feed-id]") : findParentWithAttr(e.target, "sidebar-item", "data-feed-id");
+    if (feedItem) {
+      e.preventDefault();
+      showContextMenu(e.clientX, e.clientY, feedItem.getAttribute("data-feed-id"), feedItem.getAttribute("data-folder-id") || null);
+    }
+  });
+
+  /* -- Sidebar: Ungrouped feeds -- */
+  dom.sidebarFeeds.addEventListener("click", function(e) {
+    var feedItem = e.target.closest ? e.target.closest(".sidebar-item") : findParent(e.target, "sidebar-item");
+    if (feedItem && feedItem.getAttribute("data-view")) {
+      var feedId = feedItem.getAttribute("data-feed-id");
+      var feed = state.feedMap[feedId];
+      var title = feed ? (feed.title || feed.url) : "订阅源";
+      switchView(feedItem.getAttribute("data-view"), title);
+    }
+  });
+
+  dom.sidebarFeeds.addEventListener("contextmenu", function(e) {
+    var feedItem = e.target.closest ? e.target.closest(".sidebar-item[data-feed-id]") : findParentWithAttr(e.target, "sidebar-item", "data-feed-id");
+    if (feedItem) {
+      e.preventDefault();
+      showContextMenu(e.clientX, e.clientY, feedItem.getAttribute("data-feed-id"), null);
+    }
+  });
+
+  /* -- Context menu actions -- */
+  document.getElementById("ctx-refresh-feed").addEventListener("click", function() {
+    if (state.contextFeedId) refreshFeed(state.contextFeedId);
+    hideContextMenu();
+  });
+
+  document.getElementById("ctx-mark-all-read").addEventListener("click", function() {
+    if (state.contextFeedId) markAllRead(state.contextFeedId);
+    hideContextMenu();
+  });
+
+  document.getElementById("ctx-move-to-folder").addEventListener("click", function() {
+    hideContextMenu();
+    /* Populate folder dropdown */
+    var html = '<option value="">-- 无文件夹（未分组） --</option>';
+    for (var i = 0; i < state.folders.length; i++) {
+      html += '<option value="' + state.folders[i].id + '">' + escapeHtml(state.folders[i].name) + '</option>';
+    }
+    dom.targetFolderSelect.innerHTML = html;
+    openModal("modal-move-feed");
+  });
+
+  document.getElementById("ctx-unsubscribe").addEventListener("click", function() {
+    if (state.contextFeedId) unsubscribeFeed(state.contextFeedId);
+    hideContextMenu();
+  });
+
+  /* -- Hide context menu on any other click -- */
+  document.addEventListener("click", function(e) {
+    if (!dom.ctxMenu.contains(e.target)) {
+      hideContextMenu();
+    }
+  });
+
+  /* -- Article list clicks -- */
+  dom.listContent.addEventListener("click", function(e) {
+    var item = e.target.closest ? e.target.closest(".article-item") : findParent(e.target, "article-item");
+    if (!item) return;
+    var idx = parseInt(item.getAttribute("data-article-index"), 10);
+    if (!isNaN(idx)) selectArticle(idx);
+  });
+
+  /* -- Load more -- */
+  dom.loadMoreBtn.addEventListener("click", function() {
+    loadArticles(true);
+  });
+
+  /* -- Reader action buttons -- */
+  dom.btnToggleRead.addEventListener("click", toggleCurrentRead);
+  dom.btnToggleStar.addEventListener("click", toggleCurrentStar);
+
+  /* -- Keyboard shortcuts -- */
+  document.addEventListener("keydown", function(e) {
+    var tag = e.target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+      if (e.key === "Escape") closeAllModals();
+      return;
+    }
+
+    var modalOpen = document.querySelector(".modal-overlay.open");
+    if (e.key === "Escape") {
+      if (modalOpen) { closeAllModals(); return; }
+      hideContextMenu();
+      return;
+    }
+    if (modalOpen) return;
+
+    switch (e.key) {
+      case "j":
+        /* Next article */
+        e.preventDefault();
+        if (state.selectedArticleIndex < state.articles.length - 1) {
+          selectArticle(state.selectedArticleIndex + 1);
+          scrollArticleIntoView(state.selectedArticleIndex);
+        }
+        break;
+      case "k":
+        /* Previous article */
+        e.preventDefault();
+        if (state.selectedArticleIndex > 0) {
+          selectArticle(state.selectedArticleIndex - 1);
+          scrollArticleIntoView(state.selectedArticleIndex);
+        }
+        break;
+      case "r":
+        if (e.shiftKey) {
+          e.preventDefault();
+          refreshAll();
+        } else {
+          toggleCurrentRead();
+        }
+        break;
+      case "R":
+        e.preventDefault();
+        refreshAll();
+        break;
+      case "s":
+        toggleCurrentStar();
+        break;
+    }
+  });
+
+  /* =====================================================================
+     Polyfill for Element.closest (IE11 compat, though unlikely needed)
+     ===================================================================== */
+  function findParent(el, className) {
+    while (el) {
+      if (el.classList && el.classList.contains(className)) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  function findParentWithAttr(el, className, attr) {
+    while (el) {
+      if (el.classList && el.classList.contains(className) && el.hasAttribute(attr)) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  /* =====================================================================
+     Periodic Stats Refresh (every 30 seconds)
+     ===================================================================== */
+  setInterval(function() {
+    loadStats();
+  }, 30000);
+
+  /* =====================================================================
+     Startup
+     ===================================================================== */
+  loadSettings();
+  reloadEverything();
+
+})();
+</script>
+</body>
+</html>
