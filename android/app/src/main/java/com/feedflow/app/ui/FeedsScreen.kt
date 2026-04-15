@@ -90,15 +90,21 @@ fun FeedsScreen(repo: FeedRepository) {
     var isAdding by remember { mutableStateOf(false) }
     var addError by remember { mutableStateOf<String?>(null) }
 
+    // Tag editing state
+    var editingTagFeed by remember { mutableStateOf<Feed?>(null) }
+    var editingTags by remember { mutableStateOf("") }
+
     fun loadFeeds() {
         scope.launch {
             isRefreshing = true
             try {
+                val count = repo.refreshAll()
                 val list = repo.getFeeds()
                 feeds.clear()
                 feeds.addAll(list)
+                snackbarHostState.showSnackbar("刷新完成，新增 $count 篇文章")
             } catch (e: Exception) {
-                snackbarHostState.showSnackbar("加载失败: ${e.message}")
+                snackbarHostState.showSnackbar("刷新失败: ${e.message}")
             }
             isRefreshing = false
         }
@@ -186,6 +192,10 @@ fun FeedsScreen(repo: FeedRepository) {
                                         }
                                     }
                                 },
+                                onLongClick = {
+                                    editingTagFeed = feed
+                                    editingTags = feed.tags.joinToString(", ")
+                                },
                             )
                         }
                     }
@@ -255,14 +265,57 @@ fun FeedsScreen(repo: FeedRepository) {
             },
         )
     }
+
+    // Tag editing dialog
+    if (editingTagFeed != null) {
+        AlertDialog(
+            onDismissRequest = { editingTagFeed = null },
+            title = { Text("编辑标签") },
+            text = {
+                Column {
+                    Text(
+                        editingTagFeed!!.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = editingTags,
+                        onValueChange = { editingTags = it },
+                        label = { Text("标签（逗号分隔）") },
+                        placeholder = { Text("技术, AI, 博客") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val feedToUpdate = editingTagFeed ?: return@TextButton
+                    val tags = editingTags.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                    editingTagFeed = null
+                    scope.launch {
+                        repo.updateFeedTags(feedToUpdate.id, tags)
+                        val idx = feeds.indexOfFirst { it.id == feedToUpdate.id }
+                        if (idx >= 0) feeds[idx] = feeds[idx].copy(tags = tags)
+                        snackbarHostState.showSnackbar("标签已更新")
+                    }
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingTagFeed = null }) { Text("取消") }
+            },
+        )
+    }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 private fun FeedItem(
     feed: Feed,
     onClick: () -> Unit,
     onDelete: () -> Unit,
+    onLongClick: () -> Unit = {},
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
@@ -296,7 +349,7 @@ private fun FeedItem(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onClick)
+                .combinedClickable(onClick = onClick, onLongClick = onLongClick)
                 .animateContentSize(),
             shape = RoundedCornerShape(12.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
@@ -347,6 +400,18 @@ private fun FeedItem(
                             overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                    if (feed.tags.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            feed.tags.forEach { tag ->
+                                AssistChip(
+                                    onClick = {},
+                                    label = { Text(tag, style = MaterialTheme.typography.labelSmall) },
+                                    modifier = Modifier.height(24.dp),
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -478,6 +543,18 @@ private fun FeedArticleListScreen(
                                         if (updated != null) {
                                             val idx = articles.indexOfFirst { it.id == article.id }
                                             if (idx >= 0) articles[idx] = articles[idx].copy(isStarred = updated.isStarred)
+                                        }
+                                    }
+                                },
+                                onDownload = { articleId ->
+                                    scope.launch {
+                                        val result = repo.downloadArticle(articleId)
+                                        val idx = articles.indexOfFirst { it.id == articleId }
+                                        if (result.isSuccess) {
+                                            if (idx >= 0) articles[idx] = articles[idx].copy(isDownloaded = true)
+                                            snackbarHostState.showSnackbar("已推送下载")
+                                        } else {
+                                            snackbarHostState.showSnackbar("下载失败: ${result.exceptionOrNull()?.message}")
                                         }
                                     }
                                 },

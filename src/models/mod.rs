@@ -40,6 +40,8 @@ pub struct Article {
     pub is_starred: bool,
     pub ai_summary: Option<String>,    // AI 生成的摘要
     pub ai_tags: Option<String>,       // AI 标签 (JSON array)
+    pub enclosure_url: Option<String>,   // 附件/种子下载链接
+    pub content_length: i64,             // 附件大小(字节)
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -90,6 +92,9 @@ pub struct AppSettings {
     pub ai_model: String,
     pub ai_summary_prompt: String,
     pub bangumi_token: String,
+    pub webhook_enabled: bool,
+    pub webhook_url: String,
+    pub webhook_template: String,
 }
 
 impl Default for AppSettings {
@@ -102,8 +107,28 @@ impl Default for AppSettings {
             ai_model: "gpt-4o-mini".to_string(),
             ai_summary_prompt: "请用中文简要总结以下文章内容，不超过200字：\n\n".to_string(),
             bangumi_token: String::new(),
+            webhook_enabled: false,
+            webhook_url: String::new(),
+            webhook_template: r#"{"text": "FeedFlow: {{count}} 篇新文章"}"#.to_string(),
         }
     }
+}
+
+/// 缓存统计
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheStats {
+    pub db_size_bytes: u64,
+    pub article_count: i64,
+    pub feed_count: i64,
+    pub cover_cache_count: i64,
+    pub oldest_article: Option<String>,
+}
+
+/// 缓存清理结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheClearResult {
+    pub articles_cleaned: u64,
+    pub cover_cache_cleared: u64,
 }
 
 /// 抓取结果
@@ -118,4 +143,66 @@ pub struct FetchResult {
     pub updated_icon_url: Option<String>,
     pub etag: Option<String>,
     pub last_modified: Option<String>,
+}
+
+/// 下载配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadConfig {
+    pub client_type: String,    // "qbittorrent" / "aria2" / "transmission"
+    pub host: String,           // "http://192.168.1.100:8080"
+    pub username: String,
+    pub password: String,
+    pub save_path: String,
+    pub auto_download: bool,
+}
+
+impl Default for DownloadConfig {
+    fn default() -> Self {
+        Self {
+            client_type: "qbittorrent".to_string(),
+            host: String::new(),
+            username: String::new(),
+            password: String::new(),
+            save_path: String::new(),
+            auto_download: false,
+        }
+    }
+}
+
+/// 下载历史记录
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadHistory {
+    pub article_id: String,
+    pub torrent_url: String,
+    pub downloaded_at: DateTime<Utc>,
+    pub status: String,  // "sent" / "failed"
+}
+
+/// 番剧聚合信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnimeInfo {
+    pub name: String,
+    pub cover_url: Option<String>,
+    pub bgm_id: Option<String>,
+    pub bgm_name: Option<String>,
+    pub summary: Option<String>,
+    pub eps_count: Option<i32>,
+    pub air_date: Option<String>,
+    pub rating: Option<f64>,
+    pub episodes: Vec<AnimeEpisode>,
+}
+
+/// 番剧单集
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnimeEpisode {
+    pub article_id: String,
+    pub title: String,
+    pub episode: Option<String>,
+    pub fansub: Option<String>,
+    pub resolution: Option<String>,
+    pub file_size: Option<String>,
+    pub enclosure_url: Option<String>,
+    pub content_length: i64,
+    pub published_at: Option<String>,
+    pub is_downloaded: bool,
 }

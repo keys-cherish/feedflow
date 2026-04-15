@@ -228,14 +228,35 @@ impl FeedFetcher {
                     .and_then(|m| m.thumbnails.first())
                     .map(|t| t.image.uri.clone());
 
-                // 提取附件/下载链接（种子、播客等）
-                let enclosure_url: Option<String> = entry
-                    .media
-                    .iter()
+                // 提取附件/下载链接（种子、播客等，兼容 mikan/nyaa/dmhy/acg.rip/bangumi.moe）
+                let enclosure_url: Option<String> = {
+                    // First: check media content URLs
+                    let media_url = entry.media.iter()
+                        .flat_map(|m| m.content.iter())
+                        .filter_map(|c| c.url.as_ref())
+                        .map(|u| u.to_string())
+                        .next();
+
+                    // Also check links for enclosure rel or torrent/magnet URLs
+                    let link_url = entry.links.iter()
+                        .filter(|l| {
+                            let href = &l.href;
+                            href.ends_with(".torrent") || href.starts_with("magnet:") || href.starts_with("ed2k://")
+                                || l.rel.as_deref() == Some("enclosure")
+                                || l.media_type.as_deref().map(|t| t.contains("bittorrent")).unwrap_or(false)
+                        })
+                        .map(|l| l.href.clone())
+                        .next();
+
+                    media_url.or(link_url)
+                };
+
+                let content_length: i64 = entry.media.iter()
                     .flat_map(|m| m.content.iter())
-                    .filter_map(|c| c.url.as_ref())
+                    .filter_map(|c| c.size)
                     .next()
-                    .map(|u| u.to_string());
+                    .map(|s| s as i64)
+                    .unwrap_or(0);
 
                 let summary = entry
                     .summary
@@ -272,6 +293,8 @@ impl FeedFetcher {
                     is_starred: false,
                     ai_summary: None,
                     ai_tags: None,
+                    enclosure_url: enclosure_url.clone(),
+                    content_length,
                     created_at: now,
                     updated_at: now,
                 }

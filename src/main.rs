@@ -2,6 +2,7 @@ mod api;
 mod auth;
 mod config;
 mod db;
+mod download;
 mod feed;
 pub mod mikan;
 mod models;

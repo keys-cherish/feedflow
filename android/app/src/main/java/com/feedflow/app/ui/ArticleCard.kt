@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarOutline
@@ -25,8 +27,10 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -114,6 +118,161 @@ fun getCleanSummary(article: Article, displayTitle: String): String? {
  */
 @Composable
 fun ArticleCard(
+    article: Article,
+    onClick: () -> Unit,
+    onStarToggle: () -> Unit,
+    onDownload: ((String) -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    if (article.isMikan) {
+        AnimeArticleCard(article, onClick, onStarToggle, onDownload, modifier)
+    } else {
+        StandardArticleCard(article, onClick, onStarToggle, modifier)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Anime card — left cover + right info with badges
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun AnimeArticleCard(
+    article: Article,
+    onClick: () -> Unit,
+    onStarToggle: () -> Unit,
+    onDownload: ((String) -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val parsed = remember(article.title) { parseMikanTitle(article.title) }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
+    ) {
+        Row(modifier = Modifier.padding(10.dp)) {
+            // Left: vertical anime cover
+            if (!article.thumbnailUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = article.thumbnailUrl,
+                    contentDescription = parsed.title,
+                    modifier = Modifier
+                        .width(80.dp)
+                        .height(120.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Crop,
+                )
+                Spacer(Modifier.width(12.dp))
+            }
+
+            // Right: info
+            Column(modifier = Modifier.weight(1f)) {
+                // Anime title
+                Text(
+                    text = parsed.title,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    color = if (article.isRead) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                    else MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(4.dp))
+
+                // Episode info
+                if (parsed.episode != null) {
+                    Text(
+                        text = "第 ${parsed.episode} 集" + (parsed.season?.let { " · 第${it}季" } ?: ""),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
+
+                // Badges row: fansub + resolution + size + download
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    parsed.fansub?.let { AnimeBadge(it) }
+                    parsed.resolution?.let { AnimeBadge(it) }
+                    // File size badge
+                    val sizeStr = parsed.fileSize ?: formatContentLength(article.contentLength)
+                    if (sizeStr != null) AnimeBadge(sizeStr)
+                    // Download icon for articles with torrent enclosure
+                    if (!article.enclosureUrl.isNullOrBlank()) {
+                        IconButton(
+                            onClick = {
+                                if (!article.isDownloaded) onDownload?.invoke(article.id)
+                            },
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (article.isDownloaded) Icons.Default.DownloadDone else Icons.Default.Download,
+                                contentDescription = if (article.isDownloaded) "已下载" else "下载",
+                                tint = if (article.isDownloaded) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(6.dp))
+
+                // Feed + time
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = (article.feedTitle ?: "") +
+                                (formatRelativeTime(article.publishedAt).let { if (it.isNotBlank()) " · $it" else "" }),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    IconButton(onClick = onStarToggle, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            imageVector = if (article.isStarred) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                            contentDescription = if (article.isStarred) "取消收藏" else "收藏",
+                            tint = if (article.isStarred) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AnimeBadge(text: String) {
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Standard article card (original layout)
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun StandardArticleCard(
     article: Article,
     onClick: () -> Unit,
     onStarToggle: () -> Unit,
@@ -283,5 +442,14 @@ fun formatRelativeTime(isoTimestamp: String?): String {
         minutes < 2880 -> "昨天"
         minutes < 43200 -> "${minutes / 1440}天前"
         else -> isoTimestamp.take(10) // fallback to date string
+    }
+}
+
+private fun formatContentLength(bytes: Long): String? {
+    if (bytes <= 0) return null
+    return when {
+        bytes < 1024L * 1024 -> "%.0f KB".format(bytes / 1024.0)
+        bytes < 1024L * 1024 * 1024 -> "%.1f MB".format(bytes / (1024.0 * 1024))
+        else -> "%.1f GB".format(bytes / (1024.0 * 1024 * 1024))
     }
 }

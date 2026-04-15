@@ -954,6 +954,43 @@ a:hover { text-decoration: underline; }
 .bangumi-cover { width: 80px; height: 112px; border-radius: 6px; object-fit: cover; flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
 .reader-header-with-cover { display: flex; gap: 16px; align-items: flex-start; }
 .reader-header-text { flex: 1; min-width: 0; }
+
+/* Anime grid view */
+.anime-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; padding: 16px; }
+.anime-card { cursor: pointer; border-radius: 8px; overflow: hidden; background: var(--surface); transition: transform 0.2s; }
+.anime-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+.anime-cover { width: 100%; aspect-ratio: 3/4; object-fit: cover; background: var(--sidebar); }
+.anime-cover-placeholder { width: 100%; aspect-ratio: 3/4; display: flex; align-items: center; justify-content: center; background: var(--sidebar); color: var(--text-dim); font-size: 2em; }
+.anime-card-info { padding: 8px; }
+.anime-card-title { font-size: 0.85em; font-weight: 600; line-height: 1.3; max-height: 2.6em; overflow: hidden; }
+.anime-card-meta { font-size: 0.75em; color: var(--text-dim); margin-top: 4px; }
+.anime-badge { display: inline-block; background: var(--highlight); color: white; padding: 1px 6px; border-radius: 3px; font-size: 0.7em; position: absolute; top: 6px; right: 6px; }
+.anime-rating { position: absolute; bottom: 6px; left: 6px; background: rgba(0,0,0,0.7); color: #ffd700; padding: 1px 5px; border-radius: 3px; font-size: 0.75em; }
+.anime-cover-wrapper { position: relative; }
+
+/* Anime detail */
+.anime-detail-hero { display: flex; gap: 16px; padding: 16px; }
+.anime-detail-cover { width: 140px; min-width: 140px; aspect-ratio: 3/4; object-fit: cover; border-radius: 8px; }
+.anime-detail-info { flex: 1; }
+.anime-detail-info h2 { margin: 0 0 8px; }
+.anime-detail-summary { font-size: 0.9em; color: var(--text-dim); margin: 12px 0; max-height: 100px; overflow-y: auto; }
+.episode-list { padding: 0 16px 16px; }
+.episode-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; margin: 4px 0; border-radius: 8px; background: var(--surface); }
+.episode-num { font-weight: bold; min-width: 60px; }
+.episode-badges { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; }
+.episode-badge { background: var(--accent); padding: 2px 6px; border-radius: 3px; font-size: 0.75em; }
+.episode-time { font-size: 0.75em; color: var(--text-dim); }
+
+/* Download buttons */
+.dl-btn { cursor: pointer; background: none; border: none; padding: 4px; color: var(--text-dim); font-size: 1.1em; }
+.dl-btn:hover { color: var(--highlight); }
+.dl-btn.downloaded { color: #4caf50; }
+
+/* Download settings */
+.dl-config-group { margin: 12px 0; }
+.dl-config-group label { display: block; margin-bottom: 4px; font-size: 0.85em; color: var(--text-dim); }
+.dl-radio-group { display: flex; gap: 12px; margin: 8px 0; }
+.dl-radio-group label { display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 0.9em; color: var(--text); }
 </style>
 </head>
 <body>
@@ -993,6 +1030,10 @@ a:hover { text-decoration: underline; }
         <div class="sidebar-item" data-view="starred" id="nav-starred">
           <span class="icon">&#9733;</span>
           <span class="label">收藏</span>
+        </div>
+        <div class="sidebar-item" data-view="anime" id="nav-anime">
+          <span class="icon">&#127916;</span>
+          <span class="label">番剧</span>
         </div>
       </div>
 
@@ -1141,6 +1182,40 @@ a:hover { text-decoration: underline; }
       <label for="settings-bangumi-token">Bangumi Token</label>
       <input type="password" id="settings-bangumi-token" placeholder="Bangumi API Token">
     </div>
+    <!-- Download settings -->
+    <div class="form-group" style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px;">
+      <h3 style="margin:0 0 8px;font-size:14px;">下载设置</h3>
+      <div class="dl-config-group">
+        <label><input type="checkbox" id="dl-auto"> 自动下载新番（刷新时自动推送种子）</label>
+      </div>
+      <div class="dl-config-group">
+        <label>下载客户端</label>
+        <div class="dl-radio-group">
+          <label><input type="radio" name="dl-type" value="qbittorrent" checked> qBittorrent</label>
+          <label><input type="radio" name="dl-type" value="aria2"> Aria2</label>
+          <label><input type="radio" name="dl-type" value="transmission"> Transmission</label>
+        </div>
+      </div>
+      <div class="dl-config-group">
+        <label>主机地址</label>
+        <input type="text" id="dl-host" placeholder="http://192.168.1.100:8080" style="width:100%;padding:8px 12px;border-radius:4px;border:1px solid var(--input-border);background:var(--input-bg);color:var(--text);outline:none;">
+      </div>
+      <div class="dl-config-group">
+        <label>用户名</label>
+        <input type="text" id="dl-username" style="width:100%;padding:8px 12px;border-radius:4px;border:1px solid var(--input-border);background:var(--input-bg);color:var(--text);outline:none;">
+      </div>
+      <div class="dl-config-group">
+        <label>密码</label>
+        <input type="password" id="dl-password" style="width:100%;padding:8px 12px;border-radius:4px;border:1px solid var(--input-border);background:var(--input-bg);color:var(--text);outline:none;">
+      </div>
+      <div class="dl-config-group">
+        <label>保存路径</label>
+        <input type="text" id="dl-save-path" placeholder="/downloads/anime" style="width:100%;padding:8px 12px;border-radius:4px;border:1px solid var(--input-border);background:var(--input-bg);color:var(--text);outline:none;">
+      </div>
+      <div class="dl-config-group">
+        <button class="btn btn-cancel" id="btn-test-dl-conn">测试连接</button>
+      </div>
+    </div>
     <div class="btn-row">
       <button class="btn btn-cancel" data-close-modal="modal-settings">取消</button>
       <button class="btn btn-primary" id="btn-submit-settings">保存</button>
@@ -1230,6 +1305,10 @@ a:hover { text-decoration: underline; }
     searchDebounceTimer: null,
     coverCache: {}
   };
+
+  /* Anime view state */
+  var animeList = [];
+  var currentAnime = null;
 
   /* =====================================================================
      DOM References (cached once for performance)
@@ -1572,6 +1651,7 @@ a:hover { text-decoration: underline; }
         '<span>' + relativeDate(a.published_at || a.created_at) + '</span>' +
         sizeBadge +
         (a.is_starred ? '<span class="a-star-indicator">&#9733;</span>' : '') +
+        (a.enclosure_url ? '<button class="dl-btn" data-dl-article-id="' + a.id + '" title="推送下载" onclick="event.stopPropagation();">&#128229;</button>' : '') +
         '</div>' +
         '</div>';
     }
@@ -1806,6 +1886,23 @@ a:hover { text-decoration: underline; }
   }
 
   function switchView(view, title) {
+    /* Handle anime view specially */
+    if (view === 'anime') {
+      state.currentView = 'anime';
+      state.currentArticle = null;
+      dom.listViewTitle.textContent = '番剧';
+      renderReader();
+      /* Update sidebar active state */
+      var allNavItems = document.querySelectorAll("#sidebar-nav .sidebar-item");
+      for (var ni = 0; ni < allNavItems.length; ni++) {
+        allNavItems[ni].classList.toggle("active", allNavItems[ni].getAttribute("data-view") === "anime");
+      }
+      renderSidebar();
+      dom.loadMoreBtn.style.display = "none";
+      loadAnimeList();
+      return;
+    }
+
     state.currentView = view;
     state.articleOffset = 0;
     state.hasMoreArticles = true;
@@ -2098,6 +2195,8 @@ a:hover { text-decoration: underline; }
       dom.settingsAiModel.value = data.ai_model || "";
       dom.settingsAiSummaryPrompt.value = data.ai_summary_prompt || "";
       dom.settingsBangumiToken.value = data.bangumi_token || "";
+      /* Also load download config */
+      loadDownloadConfig();
     }).catch(function() {
       /* Settings endpoint may not exist yet -- silently ignore */
     });
@@ -2114,6 +2213,9 @@ a:hover { text-decoration: underline; }
       bangumi_token: dom.settingsBangumiToken.value.trim()
     };
     api("PUT", "/api/settings", payload).then(function() {
+      /* Also save download config */
+      return saveDownloadConfig();
+    }).then(function() {
       toast("设置已保存", "success");
       closeModal("modal-settings");
     }).catch(function(err) {
@@ -2305,6 +2407,9 @@ a:hover { text-decoration: underline; }
 
   document.getElementById("btn-submit-settings").addEventListener("click", saveSettings);
 
+  /* -- Download test connection button -- */
+  document.getElementById("btn-test-dl-conn").addEventListener("click", testDownloadConnection);
+
   /* -- AI Summary button -- */
   dom.btnAiSummary.addEventListener("click", requestAiSummary);
 
@@ -2361,7 +2466,7 @@ a:hover { text-decoration: underline; }
     var item = e.target.closest ? e.target.closest(".sidebar-item") : findParent(e.target, "sidebar-item");
     if (!item) return;
     var view = item.getAttribute("data-view");
-    var titles = { all: "所有文章", unread: "未读", starred: "收藏" };
+    var titles = { all: "所有文章", unread: "未读", starred: "收藏", anime: "番剧" };
     switchView(view, titles[view] || "文章");
   });
 
@@ -2457,6 +2562,29 @@ a:hover { text-decoration: underline; }
 
   /* -- Article list clicks -- */
   dom.listContent.addEventListener("click", function(e) {
+    /* Download button in article list */
+    var dlBtn = e.target.closest ? e.target.closest(".dl-btn") : findParent(e.target, "dl-btn");
+    if (dlBtn) {
+      e.stopPropagation();
+      var articleId = dlBtn.getAttribute("data-dl-article-id");
+      if (articleId) downloadArticle(articleId);
+      return;
+    }
+
+    /* Anime back button */
+    if (e.target.id === "anime-back-btn" || (e.target.parentElement && e.target.parentElement.id === "anime-back-btn")) {
+      renderAnimeGrid();
+      return;
+    }
+
+    /* Anime card click */
+    var animeCard = e.target.closest ? e.target.closest(".anime-card") : findParent(e.target, "anime-card");
+    if (animeCard) {
+      var animeIdx = parseInt(animeCard.getAttribute("data-anime-index"), 10);
+      if (!isNaN(animeIdx)) showAnimeDetail(animeIdx);
+      return;
+    }
+
     var item = e.target.closest ? e.target.closest(".article-item") : findParent(e.target, "article-item");
     if (!item) return;
     var idx = parseInt(item.getAttribute("data-article-index"), 10);
@@ -2552,6 +2680,171 @@ a:hover { text-decoration: underline; }
       el = el.parentElement;
     }
     return null;
+  }
+
+  /* =====================================================================
+     Download Functions
+     ===================================================================== */
+  function loadDownloadConfig() {
+    api("GET", "/api/download/config").then(function(data) {
+      if (!data) return;
+      var el;
+      el = document.getElementById('dl-auto');
+      if (el) el.checked = !!data.auto_download;
+      el = document.querySelector('input[name="dl-type"][value="' + (data.client_type || 'qbittorrent') + '"]');
+      if (el) el.checked = true;
+      el = document.getElementById('dl-host');
+      if (el) el.value = data.host || '';
+      el = document.getElementById('dl-username');
+      if (el) el.value = data.username || '';
+      el = document.getElementById('dl-password');
+      if (el) el.value = data.password || '';
+      el = document.getElementById('dl-save-path');
+      if (el) el.value = data.save_path || '';
+    }).catch(function(e) { /* download config endpoint may not exist */ });
+  }
+
+  function saveDownloadConfig() {
+    var typeEl = document.querySelector('input[name="dl-type"]:checked');
+    var cfg = {
+      client_type: typeEl ? typeEl.value : 'qbittorrent',
+      host: (document.getElementById('dl-host') || {}).value || '',
+      username: (document.getElementById('dl-username') || {}).value || '',
+      password: (document.getElementById('dl-password') || {}).value || '',
+      save_path: (document.getElementById('dl-save-path') || {}).value || '',
+      auto_download: !!(document.getElementById('dl-auto') || {}).checked
+    };
+    return api("PUT", "/api/download/config", cfg);
+  }
+
+  function testDownloadConnection() {
+    saveDownloadConfig().then(function() {
+      return api("POST", "/api/download/test");
+    }).then(function(data) {
+      toast("连接成功", "success");
+    }).catch(function(e) {
+      toast("连接失败: " + e.message, "error");
+    });
+  }
+
+  function downloadArticle(articleId) {
+    api("POST", "/api/articles/" + articleId + "/download").then(function() {
+      toast("已推送下载", "success");
+      var btn = document.querySelector('.dl-btn[data-dl-article-id="' + articleId + '"]');
+      if (btn) { btn.classList.add('downloaded'); btn.innerHTML = '&#9989;'; }
+    }).catch(function(e) {
+      toast("下载失败: " + e.message, "error");
+    });
+  }
+
+  /* =====================================================================
+     Anime View Functions
+     ===================================================================== */
+  function loadAnimeList() {
+    dom.listSpinner.style.display = "inline-block";
+    api("GET", "/api/anime").then(function(data) {
+      animeList = data || [];
+      renderAnimeGrid();
+    }).catch(function(e) {
+      dom.listContent.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-dim)">加载番剧失败: ' + escapeHtml(e.message) + '</div>';
+    }).finally(function() {
+      dom.listSpinner.style.display = "none";
+    });
+  }
+
+  function renderAnimeGrid() {
+    dom.listViewTitle.textContent = '番剧 (' + animeList.length + ')';
+
+    if (animeList.length === 0) {
+      dom.listContent.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-dim)">暂无番剧数据<br>请先订阅蜜柑/Nyaa等RSS并刷新</div>';
+      return;
+    }
+
+    var html = '<div class="anime-grid">';
+    for (var i = 0; i < animeList.length; i++) {
+      var anime = animeList[i];
+      var epCount = anime.episodes ? anime.episodes.length : 0;
+      var rating = anime.rating ? '<div class="anime-rating">&#11088;' + anime.rating.toFixed(1) + '</div>' : '';
+      var cover = anime.cover_url
+        ? '<img class="anime-cover" src="' + escapeHtml(anime.cover_url) + '" alt="' + escapeHtml(anime.name) + '" loading="lazy">'
+        : '<div class="anime-cover-placeholder">&#127916;</div>';
+
+      html += '<div class="anime-card" data-anime-index="' + i + '">' +
+        '<div class="anime-cover-wrapper">' +
+        cover +
+        (epCount > 0 ? '<div class="anime-badge">' + epCount + '集</div>' : '') +
+        rating +
+        '</div>' +
+        '<div class="anime-card-info">' +
+        '<div class="anime-card-title">' + escapeHtml(anime.name) + '</div>' +
+        (anime.air_date ? '<div class="anime-card-meta">' + escapeHtml(anime.air_date) + '</div>' : '') +
+        '</div>' +
+        '</div>';
+    }
+    html += '</div>';
+    dom.listContent.innerHTML = html;
+  }
+
+  function showAnimeDetail(animeIndex) {
+    var anime = animeList[animeIndex];
+    if (!anime) return;
+    currentAnime = anime;
+
+    dom.listViewTitle.textContent = anime.name;
+
+    var cover = anime.cover_url
+      ? '<img class="anime-detail-cover" src="' + escapeHtml(anime.cover_url) + '" alt="' + escapeHtml(anime.name) + '">'
+      : '';
+
+    var meta = '';
+    if (anime.rating) meta += '<div>&#11088; ' + anime.rating.toFixed(1) + '</div>';
+    if (anime.air_date) meta += '<div>&#128197; ' + escapeHtml(anime.air_date) + '</div>';
+    if (anime.eps_count) meta += '<div>&#127916; 共 ' + anime.eps_count + ' 集</div>';
+
+    var episodes = '';
+    if (anime.episodes && anime.episodes.length > 0) {
+      for (var i = 0; i < anime.episodes.length; i++) {
+        var ep = anime.episodes[i];
+        var epLabel = ep.episode ? '第' + ep.episode + '集' : '未知';
+        var badges = '';
+        if (ep.fansub) badges += '<span class="episode-badge">' + escapeHtml(ep.fansub) + '</span>';
+        if (ep.resolution) badges += '<span class="episode-badge">' + escapeHtml(ep.resolution) + '</span>';
+        if (ep.file_size) badges += '<span class="episode-badge">' + escapeHtml(ep.file_size) + '</span>';
+        else if (ep.content_length > 0) badges += '<span class="episode-badge">' + formatBytes(ep.content_length) + '</span>';
+
+        var dlBtn = ep.enclosure_url
+          ? '<button class="dl-btn' + (ep.is_downloaded ? ' downloaded' : '') + '" data-dl-article-id="' + ep.article_id + '">' + (ep.is_downloaded ? '&#9989;' : '&#128229;') + '</button>'
+          : '';
+
+        episodes += '<div class="episode-row">' +
+          '<div class="episode-num">' + epLabel + '</div>' +
+          '<div class="episode-badges">' + badges + '</div>' +
+          '<div class="episode-time">' + (ep.published_at ? new Date(ep.published_at).toLocaleDateString() : '') + '</div>' +
+          dlBtn +
+          '</div>';
+      }
+    }
+
+    dom.listContent.innerHTML =
+      '<div style="cursor:pointer;padding:8px 16px;font-size:0.85em;color:var(--text-dim)" id="anime-back-btn">&#8592; 返回列表</div>' +
+      '<div class="anime-detail-hero">' +
+      cover +
+      '<div class="anime-detail-info">' +
+      '<h2>' + escapeHtml(anime.bgm_name || anime.name) + '</h2>' +
+      meta +
+      (anime.summary ? '<div class="anime-detail-summary">' + escapeHtml(anime.summary) + '</div>' : '') +
+      '</div>' +
+      '</div>' +
+      '<div class="episode-list">' +
+      '<h3>剧集 (' + (anime.episodes ? anime.episodes.length : 0) + ')</h3>' +
+      episodes +
+      '</div>';
+  }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024*1024) return (bytes/1024).toFixed(0) + ' KB';
+    if (bytes < 1024*1024*1024) return (bytes/(1024*1024)).toFixed(1) + ' MB';
+    return (bytes/(1024*1024*1024)).toFixed(1) + ' GB';
   }
 
   /* =====================================================================

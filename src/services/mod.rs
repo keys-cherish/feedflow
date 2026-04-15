@@ -145,9 +145,11 @@ impl FeedService {
 
                 // 存入新文章
                 let mut new_count = 0u64;
+                let mut new_articles_for_auto_dl = Vec::new();
                 for article in &result.new_articles {
                     if self.db.insert_article_if_new(article)? {
                         new_count += 1;
+                        new_articles_for_auto_dl.push(article.clone());
                     }
                 }
 
@@ -157,6 +159,9 @@ impl FeedService {
                         new_articles = new_count,
                         "Feed refreshed with new articles"
                     );
+
+                    // 自动下载：如果启用且是动漫源，自动推送种子
+                    self.auto_download_if_enabled(feed, &new_articles_for_auto_dl).await;
                 }
 
                 Ok(new_count)
@@ -276,6 +281,13 @@ impl FeedService {
         let total = total_new.load(Ordering::SeqCst);
         let errs = error_count.load(Ordering::SeqCst);
         info!(new_articles = total, errors = errs, "All feeds refreshed (concurrent)");
+
+        // Trigger webhook notification if configured and new articles found
+        if total > 0 {
+            if let Err(e) = self.send_webhook_notification(total).await {
+                warn!("Webhook notification failed: {}", e);
+            }
+        }
 
         Ok((total, errs))
     }
@@ -445,6 +457,109 @@ impl FeedService {
         self.db.update_article_ai_summary(article_id, &summary)?;
         Ok(summary)
     }
+
+    /// 自动下载：如果启用且是动漫源，自动推送种子到下载客户端
+    async fn auto_download_if_enabled(&self, feed: &Feed, new_articles: &[crate::models::Article]) {
+        // 仅对动漫源触发
+        if !is_anime_source(&feed.url) { return; }
+
+        let config = match self.db.get_download_config() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        if !config.auto_download || config.host.is_empty() { return; }
+
+        let client = match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+
+        for article in new_articles {
+            if let Some(ref torrent_url) = article.enclosure_url {
+                if torrent_url.is_empty() { continue; }
+                let aid = article.id.to_string();
+                // 跳过已下载
+                if self.db.is_downloaded(&aid).unwrap_or(false) { continue; }
+
+                match crate::download::add_torrent(&client, &config, torrent_url).await {
+                    Ok(_) => {
+                        let _ = self.db.mark_downloaded(&aid, torrent_url);
+                        info!(article_id = %aid, torrent = %torrent_url, "Auto-download: torrent sent");
+                    }
+                    Err(e) => {
+                        warn!(article_id = %aid, error = %e, "Auto-download: failed to send torrent");
+                    }
+                }
+            }
+        }
+    }
+
+    /// 发送 webhook 通知（新文章时自动触发）
+    async fn send_webhook_notification(&self, new_count: u64) -> Result<()> {
+        let settings = self.db.get_app_settings()?;
+        if !settings.webhook_enabled || settings.webhook_url.is_empty() {
+            return Ok(());
+        }
+
+        let body = settings
+            .webhook_template
+            .replace("{{count}}", &new_count.to_string());
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()?;
+
+        let resp = client
+            .post(&settings.webhook_url)
+            .header("content-type", "application/json")
+            .body(body)
+            .send()
+            .await?;
+
+        if resp.status().is_success() {
+            info!(url = %settings.webhook_url, count = new_count, "Webhook notification sent");
+        } else {
+            warn!(
+                url = %settings.webhook_url,
+                status = %resp.status(),
+                "Webhook notification failed"
+            );
+        }
+        Ok(())
+    }
+
+    /// 测试 webhook 通知（手动触发）
+    pub async fn test_webhook(&self) -> Result<String> {
+        let settings = self.db.get_app_settings()?;
+        if settings.webhook_url.is_empty() {
+            anyhow::bail!("Webhook URL 未配置");
+        }
+
+        let body = settings
+            .webhook_template
+            .replace("{{count}}", "0");
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()?;
+
+        let resp = client
+            .post(&settings.webhook_url)
+            .header("content-type", "application/json")
+            .body(body)
+            .send()
+            .await?;
+
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        if status.is_success() {
+            Ok(format!("发送成功 ({})", status))
+        } else {
+            Ok(format!("发送失败 ({}) - {}", status, text))
+        }
+    }
 }
 
 /// 规范化 Feed URL
@@ -462,4 +577,12 @@ fn normalize_feed_url(url: &str) -> String {
     }
 
     url
+}
+
+/// 判断 RSS 源是否为动漫下载站
+fn is_anime_source(url: &str) -> bool {
+    let url_lower = url.to_lowercase();
+    url_lower.contains("mikan") || url_lower.contains("nyaa")
+        || url_lower.contains("dmhy") || url_lower.contains("acg.rip")
+        || url_lower.contains("bangumi.moe") || url_lower.contains("acgrip")
 }

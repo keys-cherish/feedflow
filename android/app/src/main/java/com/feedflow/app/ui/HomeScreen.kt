@@ -14,15 +14,25 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -35,7 +45,6 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -62,13 +71,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
@@ -78,7 +87,7 @@ private enum class ArticleFilter(val label: String) {
     STARRED("收藏"),
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(repo: FeedRepository, onArticleClick: (String) -> Unit = {}) {
     val scope = rememberCoroutineScope()
@@ -93,6 +102,10 @@ fun HomeScreen(repo: FeedRepository, onArticleClick: (String) -> Unit = {}) {
     var offset by remember { mutableIntStateOf(0) }
     var filter by remember { mutableStateOf(ArticleFilter.ALL) }
     val pageSize = 20
+
+    // Tag filter state
+    var availableTags by remember { mutableStateOf<List<String>>(emptyList()) }
+    var selectedTag by remember { mutableStateOf<String?>(null) }
 
     // Reader overlay state
     var selectedArticle by remember { mutableStateOf<Article?>(null) }
@@ -110,10 +123,13 @@ fun HomeScreen(repo: FeedRepository, onArticleClick: (String) -> Unit = {}) {
     val textColor = MaterialTheme.colorScheme.onSurface
     val bgColor = MaterialTheme.colorScheme.surface
     val linkColor = MaterialTheme.colorScheme.primary
+    val metaColor = MaterialTheme.colorScheme.onSurfaceVariant
 
     suspend fun fetchPage(pageOffset: Int): List<Article> {
         return try {
-            when (filter) {
+            if (selectedTag != null) {
+                repo.getArticlesByTag(selectedTag!!, limit = pageSize, offset = pageOffset)
+            } else when (filter) {
                 ArticleFilter.ALL -> repo.getArticles(limit = pageSize, offset = pageOffset)
                 ArticleFilter.UNREAD -> repo.getUnreadArticles(limit = pageSize, offset = pageOffset)
                 ArticleFilter.STARRED -> repo.getStarredArticles(limit = pageSize, offset = pageOffset)
@@ -130,6 +146,7 @@ fun HomeScreen(repo: FeedRepository, onArticleClick: (String) -> Unit = {}) {
             offset = 0
             hasMore = true
             val data = fetchPage(0)
+            // Replace atomically — don't clear first to avoid blank flash
             articles.clear()
             articles.addAll(data)
             offset = data.size
@@ -163,10 +180,11 @@ fun HomeScreen(repo: FeedRepository, onArticleClick: (String) -> Unit = {}) {
         }
     }
 
-    LaunchedEffect(filter) {
+    LaunchedEffect(filter, selectedTag) {
         isLoading = true
         offset = 0
         hasMore = true
+        availableTags = repo.getAllTags()
         val data = fetchPage(0)
         articles.clear()
         articles.addAll(data)
@@ -185,6 +203,80 @@ fun HomeScreen(repo: FeedRepository, onArticleClick: (String) -> Unit = {}) {
         snapshotFlow { reachedBottom }
             .distinctUntilChanged()
             .collect { atBottom -> if (atBottom) loadMore() }
+    }
+
+    // Preloaded HTML cache for visible articles (avoids WebView build delay on click)
+    val preloadedHtml = remember { mutableMapOf<String, String>() }
+
+    fun buildArticleHtml(a: Article): String {
+        val dt = getDisplayTitle(a)
+        val raw = a.contentHtml
+            ?: a.summary?.let { "<p>${it.replace(Regex("<[^>]+>"), "").trim()}</p>" } ?: ""
+        val textHex = String.format("#%06X", textColor.toArgb() and 0xFFFFFF)
+        val bgHex = String.format("#%06X", bgColor.toArgb() and 0xFFFFFF)
+        val linkHex = String.format("#%06X", linkColor.toArgb() and 0xFFFFFF)
+        val mHex = String.format("#%06X", metaColor.toArgb() and 0xFFFFFF)
+        val fn = a.feedTitle ?: ""
+        val ts = formatRelativeTime(a.publishedAt)
+        val ml = if (fn.isNotBlank() && ts.isNotBlank()) "$fn &middot; $ts" else fn + ts
+        val et = dt.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+        return """
+            <!DOCTYPE html><html><head><meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=3.0">
+            <style>
+            *{box-sizing:border-box;margin:0;padding:0}
+            body{font-family:-apple-system,"Noto Sans SC","PingFang SC",sans-serif;font-size:16px;line-height:1.8;color:$textHex;background:$bgHex;padding:16px 20px 48px;word-wrap:break-word;overflow-wrap:anywhere;-webkit-text-size-adjust:100%}
+            h1.title{font-size:20px;line-height:1.4;font-weight:700;margin-bottom:8px}
+            .meta{font-size:13px;color:$mHex;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid ${mHex}30}
+            .content p{margin-bottom:1em}
+            .content h1,.content h2,.content h3,.content h4,.content h5,.content h6{margin-top:1.5em;margin-bottom:0.6em;line-height:1.4;font-weight:600}
+            .content h1{font-size:1.4em}.content h2{font-size:1.25em}.content h3{font-size:1.1em}
+            .content img{max-width:100%;height:auto;border-radius:8px;margin:8px 0;display:block}
+            .content img[src=""],.content img:not([src]){display:none}
+            .content a{color:$linkHex;text-decoration:none;word-break:break-all}
+            .content pre{overflow-x:auto;background:${mHex}15;padding:12px;border-radius:6px;margin:12px 0;line-height:1.5;font-size:14px}
+            .content code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:0.9em;background:${mHex}15;border-radius:3px;padding:2px 6px}
+            .content pre code{background:none;padding:0}
+            .content blockquote{border-left:3px solid $linkHex;padding:8px 16px;margin:12px 0;color:$mHex;background:${mHex}08;border-radius:0 4px 4px 0}
+            .content blockquote p{margin-bottom:0.5em}.content blockquote p:last-child{margin-bottom:0}
+            .content ul,.content ol{padding-left:24px;margin-bottom:1em}
+            .content li{margin-bottom:0.4em;line-height:1.7}
+            .content table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px}
+            .content th,.content td{border:1px solid ${mHex}30;padding:8px 12px;text-align:left}
+            .content th{background:${mHex}10;font-weight:600}
+            .content hr{border:none;border-top:1px solid ${mHex}20;margin:1.5em 0}
+            .content input[type="checkbox"]{margin-right:8px;vertical-align:middle}
+            .content video,.content iframe{max-width:100%;border-radius:8px;margin:8px 0}
+            .content strong{font-weight:600}.content em{font-style:italic}
+            .content sup{font-size:0.75em}.content figure{margin:12px 0}
+            .content figcaption{font-size:0.85em;color:$mHex;text-align:center;margin-top:4px}
+            .end-marker{text-align:center;color:${mHex};font-size:13px;padding:32px 0 16px;border-top:1px solid ${mHex}20;margin-top:24px}
+            </style></head><body>
+            <h1 class="title">$et</h1>
+            <div class="meta">$ml</div>
+            <div class="content">$raw</div>
+            <div class="end-marker">— 已到底部 —</div>
+            </body></html>
+        """.trimIndent()
+    }
+
+    // Preload visible articles' HTML on scroll
+    LaunchedEffect(Unit) {
+        snapshotFlow {
+            listState.layoutInfo.visibleItemsInfo.mapNotNull { info ->
+                articles.getOrNull(info.index - 1) // offset by filter chip item
+            }
+        }.distinctUntilChanged().collect { visibleArticles ->
+            visibleArticles.forEach { a ->
+                if (a.id !in preloadedHtml && a.contentHtml != null) {
+                    preloadedHtml[a.id] = buildArticleHtml(a)
+                    // Cap cache at 20 entries
+                    if (preloadedHtml.size > 20) {
+                        preloadedHtml.keys.firstOrNull()?.let { preloadedHtml.remove(it) }
+                    }
+                }
+            }
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -223,11 +315,19 @@ fun HomeScreen(repo: FeedRepository, onArticleClick: (String) -> Unit = {}) {
                                 isRefreshing = true
                                 try {
                                     val count = repo.refreshAll()
+                                    // Reload articles inline (no nested coroutine)
+                                    offset = 0
+                                    hasMore = true
+                                    val data = fetchPage(0)
+                                    articles.clear()
+                                    articles.addAll(data)
+                                    offset = data.size
+                                    hasMore = data.size >= pageSize
                                     snackbarHostState.showSnackbar("刷新完成，新增 $count 篇文章")
                                 } catch (e: Exception) {
                                     snackbarHostState.showSnackbar("刷新失败: ${e.message}")
                                 }
-                                refreshData()
+                                isRefreshing = false
                             }
                         }) {
                             Icon(Icons.Default.Refresh, contentDescription = "刷新所有订阅源")
@@ -258,15 +358,25 @@ fun HomeScreen(repo: FeedRepository, onArticleClick: (String) -> Unit = {}) {
 
                 if (!isSearching) {
                     item(key = "filters") {
-                        Row(
+                        FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             ArticleFilter.entries.forEach { f ->
                                 FilterChip(
                                     selected = filter == f,
-                                    onClick = { filter = f },
+                                    onClick = { filter = f; selectedTag = null },
                                     label = { Text(f.label) },
+                                )
+                            }
+                            // Tag filter chips
+                            availableTags.forEach { tag ->
+                                FilterChip(
+                                    selected = selectedTag == tag,
+                                    onClick = {
+                                        selectedTag = if (selectedTag == tag) null else tag
+                                    },
+                                    label = { Text(tag) },
                                 )
                             }
                         }
@@ -329,6 +439,18 @@ fun HomeScreen(repo: FeedRepository, onArticleClick: (String) -> Unit = {}) {
                                     }
                                 }
                             },
+                            onDownload = { articleId ->
+                                scope.launch {
+                                    val result = repo.downloadArticle(articleId)
+                                    val idx = articles.indexOfFirst { it.id == articleId }
+                                    if (result.isSuccess) {
+                                        if (idx >= 0) articles[idx] = articles[idx].copy(isDownloaded = true)
+                                        snackbarHostState.showSnackbar("已推送下载")
+                                    } else {
+                                        snackbarHostState.showSnackbar("下载失败: ${result.exceptionOrNull()?.message}")
+                                    }
+                                }
+                            },
                         )
                     }
                 }
@@ -353,117 +475,115 @@ fun HomeScreen(repo: FeedRepository, onArticleClick: (String) -> Unit = {}) {
         exit = slideOutVertically(targetOffsetY = { it }),
     ) {
         val article = readerArticle.value ?: return@AnimatedVisibility
-        val metaColor = MaterialTheme.colorScheme.onSurfaceVariant
 
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+        // Pull-down-to-dismiss state
+        var dragOffsetY by remember { mutableStateOf(0f) }
+        val dismissThreshold = 300f // px, ~150dp on most screens
+
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .offset(y = with(androidx.compose.ui.platform.LocalDensity.current) { dragOffsetY.coerceAtLeast(0f).toDp() }),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
             Column(Modifier.fillMaxSize()) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
-                ) {
-                    IconButton(onClick = { selectedArticle = null }) {
-                        Icon(Icons.Default.Close, contentDescription = "关闭")
-                    }
-                    Text(
-                        text = buildString {
-                            article.feedTitle?.let { append(it) }
-                            article.publishedAt?.let {
-                                if (isNotEmpty()) append(" · ")
-                                append(formatRelativeTime(it))
-                            }
-                        },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    IconButton(
-                        onClick = {
-                            scope.launch {
-                                val updated = repo.toggleArticleStar(article.id)
-                                if (updated != null) {
-                                    selectedArticle = article.copy(isStarred = updated.isStarred)
-                                    val idx = articles.indexOfFirst { it.id == article.id }
-                                    if (idx >= 0) articles[idx] = articles[idx].copy(isStarred = updated.isStarred)
-                                    snackbarHostState.showSnackbar(
-                                        if (updated.isStarred) "已收藏" else "已取消收藏"
-                                    )
+                // Top bar with integrated drag handle
+                Surface(
+                    tonalElevation = 2.dp,
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .draggable(
+                            orientation = Orientation.Vertical,
+                            state = rememberDraggableState { delta ->
+                                dragOffsetY = (dragOffsetY + delta).coerceAtLeast(0f)
+                            },
+                            onDragStopped = {
+                                if (dragOffsetY > dismissThreshold) {
+                                    selectedArticle = null
                                 }
-                            }
-                        },
-                        modifier = Modifier.size(36.dp),
+                                dragOffsetY = 0f
+                            },
+                        ),
+                ) {
+                    Column {
+                        // Drag handle indicator
+                        Box(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp), contentAlignment = Alignment.Center) {
+                            Box(
+                                Modifier
+                                    .width(36.dp)
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+                            )
+                        }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 4.dp, vertical = 4.dp),
                     ) {
-                        Icon(
-                            if (article.isStarred) Icons.Filled.Star else Icons.Outlined.StarOutline,
-                            contentDescription = "收藏",
-                            tint = if (article.isStarred) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        IconButton(onClick = { selectedArticle = null }) {
+                            Icon(Icons.Default.Close, contentDescription = "关闭")
+                        }
+                        Text(
+                            text = buildString {
+                                article.feedTitle?.let { append(it) }
+                                article.publishedAt?.let {
+                                    if (isNotEmpty()) append(" · ")
+                                    append(formatRelativeTime(it))
+                                }
+                            },
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
-                    }
-                    if (!article.url.isNullOrBlank()) {
                         IconButton(
-                            onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(article.url))) },
+                            onClick = {
+                                scope.launch {
+                                    val updated = repo.toggleArticleStar(article.id)
+                                    if (updated != null) {
+                                        selectedArticle = article.copy(isStarred = updated.isStarred)
+                                        val idx = articles.indexOfFirst { it.id == article.id }
+                                        if (idx >= 0) articles[idx] = articles[idx].copy(isStarred = updated.isStarred)
+                                        snackbarHostState.showSnackbar(
+                                            if (updated.isStarred) "已收藏" else "已取消收藏"
+                                        )
+                                    }
+                                }
+                            },
                             modifier = Modifier.size(36.dp),
                         ) {
-                            Icon(Icons.Default.OpenInBrowser, contentDescription = "在浏览器中打开",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(
+                                if (article.isStarred) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                                contentDescription = "收藏",
+                                tint = if (article.isStarred) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (!article.url.isNullOrBlank()) {
+                            IconButton(
+                                onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(article.url))) },
+                                modifier = Modifier.size(36.dp),
+                            ) {
+                                Icon(Icons.Default.OpenInBrowser, contentDescription = "在浏览器中打开",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
+                    } // end inner Column (handle + Row)
                 }
 
-                val displayTitle = getDisplayTitle(article)
-                val rawHtml = article.contentHtml
-                    ?: article.summary?.let { "<p>${it.replace(Regex("<[^>]+>"), "").trim()}</p>" } ?: ""
-                val textHex = String.format("#%06X", textColor.toArgb() and 0xFFFFFF)
-                val bgHex = String.format("#%06X", bgColor.toArgb() and 0xFFFFFF)
-                val linkHex = String.format("#%06X", linkColor.toArgb() and 0xFFFFFF)
-                val metaHex = String.format("#%06X", metaColor.toArgb() and 0xFFFFFF)
-                val feedName = article.feedTitle ?: ""
-                val timeStr = formatRelativeTime(article.publishedAt)
-                val metaLine = if (feedName.isNotBlank() && timeStr.isNotBlank()) "$feedName &middot; $timeStr" else feedName + timeStr
-                val escapedTitle = displayTitle.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
-                val fullHtml = """
-                    <!DOCTYPE html><html><head><meta charset="utf-8">
-                    <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=3.0">
-                    <style>
-                    *{box-sizing:border-box;margin:0;padding:0}
-                    body{font-family:-apple-system,"Noto Sans SC","PingFang SC",sans-serif;font-size:16px;line-height:1.8;color:$textHex;background:$bgHex;padding:16px 20px 48px;word-wrap:break-word;overflow-wrap:anywhere;-webkit-text-size-adjust:100%}
-                    h1.title{font-size:20px;line-height:1.4;font-weight:700;margin-bottom:8px}
-                    .meta{font-size:13px;color:$metaHex;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid ${metaHex}30}
-                    .content p{margin-bottom:1em}
-                    .content h1,.content h2,.content h3,.content h4,.content h5,.content h6{margin-top:1.5em;margin-bottom:0.6em;line-height:1.4;font-weight:600}
-                    .content h1{font-size:1.4em}.content h2{font-size:1.25em}.content h3{font-size:1.1em}
-                    .content img{max-width:100%;height:auto;border-radius:8px;margin:8px 0;display:block}
-                    .content img[src=""],.content img:not([src]){display:none}
-                    .content a{color:$linkHex;text-decoration:none;word-break:break-all}
-                    .content pre{overflow-x:auto;background:${metaHex}15;padding:12px;border-radius:6px;margin:12px 0;line-height:1.5;font-size:14px}
-                    .content code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:0.9em;background:${metaHex}15;border-radius:3px;padding:2px 6px}
-                    .content pre code{background:none;padding:0}
-                    .content blockquote{border-left:3px solid $linkHex;padding:8px 16px;margin:12px 0;color:$metaHex;background:${metaHex}08;border-radius:0 4px 4px 0}
-                    .content blockquote p{margin-bottom:0.5em}.content blockquote p:last-child{margin-bottom:0}
-                    .content ul,.content ol{padding-left:24px;margin-bottom:1em}
-                    .content li{margin-bottom:0.4em;line-height:1.7}
-                    .content table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px}
-                    .content th,.content td{border:1px solid ${metaHex}30;padding:8px 12px;text-align:left}
-                    .content th{background:${metaHex}10;font-weight:600}
-                    .content hr{border:none;border-top:1px solid ${metaHex}20;margin:1.5em 0}
-                    .content input[type="checkbox"]{margin-right:8px;vertical-align:middle}
-                    .content video,.content iframe{max-width:100%;border-radius:8px;margin:8px 0}
-                    .content strong{font-weight:600}.content em{font-style:italic}
-                    .content sup{font-size:0.75em}.content figure{margin:12px 0}
-                    .content figcaption{font-size:0.85em;color:$metaHex;text-align:center;margin-top:4px}
-                    </style></head><body>
-                    <h1 class="title">$escapedTitle</h1>
-                    <div class="meta">$metaLine</div>
-                    <div class="content">$rawHtml</div>
-                    </body></html>
-                """.trimIndent()
+                // Use preloaded HTML if available, otherwise build on the fly
+                val fullHtml = preloadedHtml[article.id] ?: buildArticleHtml(article)
 
-                var contentReady by remember(article.id) { mutableStateOf(false) }
-                LaunchedEffect(article.id) { delay(150); contentReady = true }
+                // WebView — spinner covers until content is actually painted
+                var webViewReady by remember(article.id) { mutableStateOf(false) }
 
-                if (contentReady) {
+                Box(Modifier.fillMaxWidth().weight(1f)) {
                     AndroidView(
                         factory = { ctx ->
                             WebView(ctx).apply {
@@ -474,20 +594,31 @@ fun HomeScreen(repo: FeedRepository, onArticleClick: (String) -> Unit = {}) {
                                 settings.domStorageEnabled = true
                                 settings.cacheMode = android.webkit.WebSettings.LOAD_CACHE_ELSE_NETWORK
                                 setBackgroundColor(bgColor.toArgb())
+                                // Start invisible — spinner covers
+                                visibility = android.view.View.INVISIBLE
                                 webViewClient = object : WebViewClient() {
                                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                                         ctx.startActivity(Intent(Intent.ACTION_VIEW, request.url))
                                         return true
                                     }
+                                    override fun onPageFinished(view: WebView?, url: String?) {
+                                        // Wait for actual render (next frame + 150ms buffer)
+                                        view?.postDelayed({
+                                            view.visibility = android.view.View.VISIBLE
+                                            webViewReady = true
+                                        }, 150)
+                                    }
                                 }
                                 loadDataWithBaseURL(article.url, fullHtml, "text/html", "utf-8", null)
                             }
                         },
-                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        modifier = Modifier.fillMaxSize(),
                     )
-                } else {
-                    Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+                    // Spinner on top until WebView is rendered
+                    if (!webViewReady) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
                     }
                 }
             }

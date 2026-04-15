@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::db::Database;
-use crate::models::{AppSettings, Folder};
+use crate::models::{AppSettings, DownloadConfig, Folder};
 use crate::services::FeedService;
 
 /// 应用共享状态
@@ -156,6 +156,19 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         // 全局操作
         .route("/api/refresh", post(refresh_all_feeds))
         .route("/api/stats", get(get_stats))
+        // 缓存管理
+        .route("/api/cache/stats", get(cache_stats))
+        .route("/api/cache/clear", post(cache_clear))
+        // Webhook 通知测试
+        .route("/api/notifications/test", post(test_webhook_handler))
+        // 下载管理
+        .route("/api/download/config", get(get_download_config))
+        .route("/api/download/config", put(save_download_config_handler))
+        .route("/api/download/test", post(test_download_connection))
+        .route("/api/articles/{article_id}/download", post(download_article))
+        .route("/api/download/history", get(get_download_history))
+        // 番剧聚合
+        .route("/api/anime", get(list_anime))
         // 健康检查
         .route("/health", get(health_check))
         // 认证（预留）
@@ -784,4 +797,272 @@ async fn login_handler(
     } else {
         Err(ApiResponse::err("密码错误"))
     }
+}
+
+// ─────────────────────────── Cache Management ───────────────────────────
+
+/// 缓存统计
+async fn cache_stats(
+    State(state): State<Arc<AppState>>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ApiResponse<()>>)> {
+    let db_path = state
+        .db
+        .get_db_path()
+        .unwrap_or_else(|_| "feedflow.db".to_string());
+
+    let stats = state
+        .db
+        .get_cache_stats(&db_path)
+        .map_err(|e| ApiResponse::err(e.to_string()))?;
+
+    Ok(ApiResponse::ok(stats))
+}
+
+/// 清理缓存
+#[derive(Deserialize)]
+pub struct CacheClearRequest {
+    pub days_old: Option<i64>,
+}
+
+async fn cache_clear(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CacheClearRequest>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ApiResponse<()>>)> {
+    let days = req.days_old.unwrap_or(30);
+    let result = state
+        .db
+        .clear_cache(days)
+        .map_err(|e| ApiResponse::err(e.to_string()))?;
+
+    Ok(ApiResponse::ok(result))
+}
+
+// ─────────────────────────── Webhook Test ───────────────────────────
+
+/// 测试 webhook 通知
+async fn test_webhook_handler(
+    State(state): State<Arc<AppState>>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ApiResponse<()>>)> {
+    let result = state
+        .feed_service
+        .test_webhook()
+        .await
+        .map_err(|e| ApiResponse::err(format!("{:#}", e)))?;
+
+    Ok(ApiResponse::ok(serde_json::json!({ "result": result })))
+}
+
+// ─────────────────────────── Download Management ───────────────────────────
+
+/// 获取下载配置
+async fn get_download_config(
+    State(state): State<Arc<AppState>>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ApiResponse<()>>)> {
+    let mut config = state
+        .db
+        .get_download_config()
+        .map_err(|e| ApiResponse::err(e.to_string()))?;
+    // 脱敏密码
+    if !config.password.is_empty() {
+        config.password = "****".to_string();
+    }
+    Ok(ApiResponse::ok(config))
+}
+
+/// 保存下载配置
+async fn save_download_config_handler(
+    State(state): State<Arc<AppState>>,
+    Json(mut config): Json<DownloadConfig>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ApiResponse<()>>)> {
+    // 如果密码是脱敏的，保留原值
+    if config.password == "****" {
+        let existing = state.db.get_download_config()
+            .map_err(|e| ApiResponse::err(e.to_string()))?;
+        config.password = existing.password;
+    }
+    state
+        .db
+        .save_download_config(&config)
+        .map_err(|e| ApiResponse::err(e.to_string()))?;
+    Ok(ApiResponse::ok("OK"))
+}
+
+/// 测试下载客户端连接
+async fn test_download_connection(
+    State(state): State<Arc<AppState>>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ApiResponse<()>>)> {
+    let config = state
+        .db
+        .get_download_config()
+        .map_err(|e| ApiResponse::err(e.to_string()))?;
+    if config.host.is_empty() {
+        return Err(ApiResponse::err("下载客户端地址未配置"));
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| ApiResponse::err(e.to_string()))?;
+    let ok = crate::download::test_connection(&client, &config)
+        .await
+        .map_err(|e| ApiResponse::err(format!("连接测试失败: {:#}", e)))?;
+    Ok(ApiResponse::ok(serde_json::json!({ "connected": ok })))
+}
+
+/// 推送文章种子到下载客户端
+async fn download_article(
+    State(state): State<Arc<AppState>>,
+    Path(article_id): Path<String>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ApiResponse<()>>)> {
+    let uuid = Uuid::parse_str(&article_id)
+        .map_err(|_| ApiResponse::err("Invalid article ID"))?;
+
+    let article = state
+        .db
+        .get_article_by_id(&uuid)
+        .map_err(|e| ApiResponse::err(e.to_string()))?
+        .ok_or_else(|| ApiResponse::err("文章不存在"))?;
+
+    let torrent_url = article.enclosure_url
+        .as_deref()
+        .filter(|u| !u.is_empty())
+        .ok_or_else(|| ApiResponse::err("该文章没有可下载的种子/磁力链接"))?;
+
+    let config = state
+        .db
+        .get_download_config()
+        .map_err(|e| ApiResponse::err(e.to_string()))?;
+    if config.host.is_empty() {
+        return Err(ApiResponse::err("下载客户端未配置，请先在设置中配置"));
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| ApiResponse::err(e.to_string()))?;
+
+    crate::download::add_torrent(&client, &config, torrent_url)
+        .await
+        .map_err(|e| ApiResponse::err(format!("推送失败: {:#}", e)))?;
+
+    // 记录下载历史
+    let _ = state.db.mark_downloaded(&article_id, torrent_url);
+
+    Ok(ApiResponse::ok(serde_json::json!({
+        "status": "sent",
+        "torrent_url": torrent_url
+    })))
+}
+
+/// 获取下载历史
+async fn get_download_history(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<PaginationParams>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ApiResponse<()>>)> {
+    let limit = params.limit.unwrap_or(100).min(500);
+    let history = state
+        .db
+        .get_download_history(limit)
+        .map_err(|e| ApiResponse::err(e.to_string()))?;
+    Ok(ApiResponse::ok(history))
+}
+
+// ─────────────────────────── Anime Aggregation ───────────────────────────
+
+/// 番剧聚合列表 — 从动漫类 RSS 源聚合番剧信息
+async fn list_anime(
+    State(state): State<Arc<AppState>>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ApiResponse<()>>)> {
+    let feeds = state.db.get_all_feeds()
+        .map_err(|e| ApiResponse::err(e.to_string()))?;
+
+    // 筛选动漫类 RSS 源（mikan/nyaa/dmhy/acg.rip/bangumi.moe）
+    let anime_feed_ids: Vec<_> = feeds.iter()
+        .filter(|f| is_anime_source(&f.url))
+        .map(|f| f.id)
+        .collect();
+
+    if anime_feed_ids.is_empty() {
+        return Ok(ApiResponse::ok(Vec::<crate::models::AnimeInfo>::new()));
+    }
+
+    // 获取这些 feed 的所有文章
+    let mut all_articles = Vec::new();
+    for fid in &anime_feed_ids {
+        if let Ok(articles) = state.db.get_articles_by_feed(fid, 500, 0) {
+            all_articles.extend(articles);
+        }
+    }
+
+    // 获取已下载集合
+    let downloaded_ids = state.db.get_downloaded_article_ids()
+        .unwrap_or_default();
+
+    // 按番剧名聚合
+    let mut anime_map: std::collections::HashMap<String, Vec<crate::models::AnimeEpisode>> =
+        std::collections::HashMap::new();
+
+    for article in &all_articles {
+        let parsed = crate::mikan::parse_anime_title(&article.title);
+        if parsed.title.is_empty() { continue; }
+
+        let ep = crate::models::AnimeEpisode {
+            article_id: article.id.to_string(),
+            title: article.title.clone(),
+            episode: parsed.episode,
+            fansub: parsed.fansub,
+            resolution: parsed.resolution,
+            file_size: parsed.file_size,
+            enclosure_url: article.enclosure_url.clone(),
+            content_length: article.content_length,
+            published_at: article.published_at.map(|dt| dt.to_rfc3339()),
+            is_downloaded: downloaded_ids.contains(&article.id.to_string()),
+        };
+
+        anime_map.entry(parsed.title.clone())
+            .or_default()
+            .push(ep);
+    }
+
+    // 构建 AnimeInfo，查询封面缓存
+    let mut anime_list: Vec<crate::models::AnimeInfo> = Vec::new();
+    for (name, mut episodes) in anime_map {
+        // 按集数排序
+        episodes.sort_by(|a, b| {
+            let ea = a.episode.as_deref().and_then(|e| e.parse::<i32>().ok()).unwrap_or(0);
+            let eb = b.episode.as_deref().and_then(|e| e.parse::<i32>().ok()).unwrap_or(0);
+            ea.cmp(&eb)
+        });
+
+        // 查询封面缓存
+        let (cover_url, bgm_id, bgm_name, summary, eps_count, air_date, rating) =
+            state.db.get_cached_cover_full(&name)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+
+        anime_list.push(crate::models::AnimeInfo {
+            name: name.clone(),
+            cover_url: if cover_url.is_empty() { None } else { Some(cover_url) },
+            bgm_id: if bgm_id.is_empty() { None } else { Some(bgm_id) },
+            bgm_name: if bgm_name.is_empty() { None } else { Some(bgm_name) },
+            summary,
+            eps_count,
+            air_date,
+            rating,
+            episodes,
+        });
+    }
+
+    // 按番剧名排序
+    anime_list.sort_by(|a, b| a.name.cmp(&b.name));
+
+    Ok(ApiResponse::ok(anime_list))
+}
+
+/// 判断 RSS 源是否为动漫下载站
+fn is_anime_source(url: &str) -> bool {
+    let url_lower = url.to_lowercase();
+    url_lower.contains("mikan") || url_lower.contains("nyaa")
+        || url_lower.contains("dmhy") || url_lower.contains("acg.rip")
+        || url_lower.contains("bangumi.moe") || url_lower.contains("acgrip")
 }

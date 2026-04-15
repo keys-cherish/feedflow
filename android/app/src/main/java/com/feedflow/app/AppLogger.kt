@@ -27,7 +27,13 @@ object AppLogger {
         logDir = if (customDir != null) {
             File(customDir).also { it.mkdirs() }
         } else {
-            File(context.filesDir, "logs").also { it.mkdirs() }
+            // Write to external files dir: /storage/emulated/0/Android/data/<pkg>/files/logs/
+            val extDir = context.getExternalFilesDir(null)
+            if (extDir != null) {
+                File(extDir, "logs").also { it.mkdirs() }
+            } else {
+                File(context.filesDir, "logs").also { it.mkdirs() }
+            }
         }
         enabled = prefs.getBoolean("log_enabled", true)
         // Clean logs older than 7 days

@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use uuid::Uuid;
 
-use crate::models::{Article, Feed, Folder, FolderWithCount};
+use crate::models::{Article, CacheClearResult, CacheStats, Feed, Folder, FolderWithCount};
 
 /// 数据库管理器 — MVP 阶段使用 SQLite，后续可迁移到 PostgreSQL
 pub struct Database {
@@ -26,6 +26,7 @@ impl Database {
             conn: Mutex::new(conn),
         };
         db.init_tables()?;
+        db.migrate_columns()?;
         Ok(db)
     }
 
@@ -99,6 +100,13 @@ impl Database {
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS download_history (
+                article_id TEXT NOT NULL PRIMARY KEY,
+                torrent_url TEXT NOT NULL,
+                downloaded_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'sent'
+            );
+
             -- 索引：加速常用查询
             CREATE INDEX IF NOT EXISTS idx_articles_feed_id ON articles(feed_id);
             CREATE INDEX IF NOT EXISTS idx_articles_published_at ON articles(published_at DESC);
@@ -107,6 +115,23 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_feeds_url ON feeds(url);
             ",
         )?;
+        Ok(())
+    }
+
+    /// 幂等列迁移 — SQLite 不支持 IF NOT EXISTS 列添加，捕获重复错误即可
+    fn migrate_columns(&self) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let alters = [
+            "ALTER TABLE articles ADD COLUMN enclosure_url TEXT",
+            "ALTER TABLE articles ADD COLUMN content_length INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE cover_cache ADD COLUMN summary TEXT",
+            "ALTER TABLE cover_cache ADD COLUMN eps_count INTEGER",
+            "ALTER TABLE cover_cache ADD COLUMN air_date TEXT",
+            "ALTER TABLE cover_cache ADD COLUMN rating REAL",
+        ];
+        for sql in &alters {
+            let _ = conn.execute(sql, []); // Ignore "duplicate column" errors
+        }
         Ok(())
     }
 
@@ -328,8 +353,8 @@ impl Database {
         conn.execute(
             "INSERT INTO articles (id, feed_id, guid, title, url, author, content_html,
              content_text, summary, thumbnail_url, published_at, is_read, is_starred,
-             ai_summary, ai_tags, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+             ai_summary, ai_tags, created_at, updated_at, enclosure_url, content_length)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
             params![
                 article.id.to_string(),
                 article.feed_id.to_string(),
@@ -348,6 +373,8 @@ impl Database {
                 article.ai_tags,
                 article.created_at.to_rfc3339(),
                 article.updated_at.to_rfc3339(),
+                article.enclosure_url,
+                article.content_length,
             ],
         )?;
         Ok(true) // 新插入
@@ -364,7 +391,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, feed_id, guid, title, url, author, content_html, content_text,
                     summary, thumbnail_url, published_at, is_read, is_starred,
-                    ai_summary, ai_tags, created_at, updated_at
+                    ai_summary, ai_tags, created_at, updated_at, enclosure_url, content_length
              FROM articles WHERE feed_id = ?1
              ORDER BY published_at DESC NULLS LAST, created_at DESC
              LIMIT ?2 OFFSET ?3",
@@ -385,7 +412,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, feed_id, guid, title, url, author, content_html, content_text,
                     summary, thumbnail_url, published_at, is_read, is_starred,
-                    ai_summary, ai_tags, created_at, updated_at
+                    ai_summary, ai_tags, created_at, updated_at, enclosure_url, content_length
              FROM articles WHERE is_read = 0
              ORDER BY published_at DESC NULLS LAST, created_at DESC
              LIMIT ?1 OFFSET ?2",
@@ -404,7 +431,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, feed_id, guid, title, url, author, content_html, content_text,
                     summary, thumbnail_url, published_at, is_read, is_starred,
-                    ai_summary, ai_tags, created_at, updated_at
+                    ai_summary, ai_tags, created_at, updated_at, enclosure_url, content_length
              FROM articles WHERE is_starred = 1
              ORDER BY published_at DESC NULLS LAST, created_at DESC
              LIMIT ?1 OFFSET ?2",
@@ -428,7 +455,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 "SELECT id, feed_id, guid, title, url, author, content_html, content_text,
                         summary, thumbnail_url, published_at, is_read, is_starred,
-                        ai_summary, ai_tags, created_at, updated_at
+                        ai_summary, ai_tags, created_at, updated_at, enclosure_url, content_length
                  FROM articles
                  ORDER BY published_at DESC NULLS LAST, created_at DESC",
             )?;
@@ -456,7 +483,7 @@ impl Database {
             let mut stmt = conn.prepare(
                 "SELECT id, feed_id, guid, title, url, author, content_html, content_text,
                         summary, thumbnail_url, published_at, is_read, is_starred,
-                        ai_summary, ai_tags, created_at, updated_at
+                        ai_summary, ai_tags, created_at, updated_at, enclosure_url, content_length
                  FROM articles
                  WHERE title LIKE ?1 OR content_text LIKE ?1 OR summary LIKE ?1
                  ORDER BY published_at DESC NULLS LAST, created_at DESC
@@ -477,7 +504,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, feed_id, guid, title, url, author, content_html, content_text,
                     summary, thumbnail_url, published_at, is_read, is_starred,
-                    ai_summary, ai_tags, created_at, updated_at
+                    ai_summary, ai_tags, created_at, updated_at, enclosure_url, content_length
              FROM articles
              ORDER BY published_at DESC NULLS LAST, created_at DESC
              LIMIT ?1 OFFSET ?2",
@@ -571,6 +598,8 @@ impl Database {
             updated_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(16)?)
                 .unwrap()
                 .with_timezone(&chrono::Utc),
+            enclosure_url: row.get(17)?,
+            content_length: row.get::<_, Option<i64>>(18)?.unwrap_or(0),
         })
     }
 
@@ -739,7 +768,7 @@ impl Database {
             .query_row(
                 "SELECT id, feed_id, guid, title, url, author, content_html, content_text,
                         summary, thumbnail_url, published_at, is_read, is_starred,
-                        ai_summary, ai_tags, created_at, updated_at
+                        ai_summary, ai_tags, created_at, updated_at, enclosure_url, content_length
                  FROM articles WHERE id = ?1",
                 params![id.to_string()],
                 |row| Self::row_to_article(row),
@@ -807,6 +836,9 @@ impl Database {
             ai_model: map.get("ai_model").cloned().unwrap_or(d.ai_model),
             ai_summary_prompt: map.get("ai_summary_prompt").cloned().unwrap_or(d.ai_summary_prompt),
             bangumi_token: map.get("bangumi_token").cloned().unwrap_or(d.bangumi_token),
+            webhook_enabled: map.get("webhook_enabled").map(|v| v == "true").unwrap_or(d.webhook_enabled),
+            webhook_url: map.get("webhook_url").cloned().unwrap_or(d.webhook_url),
+            webhook_template: map.get("webhook_template").cloned().unwrap_or(d.webhook_template),
         })
     }
 
@@ -821,6 +853,9 @@ impl Database {
             ("ai_model", s.ai_model.clone()),
             ("ai_summary_prompt", s.ai_summary_prompt.clone()),
             ("bangumi_token", s.bangumi_token.clone()),
+            ("webhook_enabled", s.webhook_enabled.to_string()),
+            ("webhook_url", s.webhook_url.clone()),
+            ("webhook_template", s.webhook_template.clone()),
         ];
         for (k, v) in &pairs {
             conn.execute(
@@ -865,6 +900,196 @@ impl Database {
             "INSERT OR REPLACE INTO cover_cache (query, cover_url, bgm_id, bgm_name, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![query, cover_url, bgm_id, bgm_name, Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    // ─────────────────────────── Cache Management ───────────────────────────
+
+    /// 获取缓存统计信息
+    pub fn get_cache_stats(&self, db_path: &str) -> Result<CacheStats> {
+        let conn = self.conn.lock().unwrap();
+        let article_count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM articles", [], |row| row.get(0))?;
+        let feed_count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM feeds", [], |row| row.get(0))?;
+        let cover_cache_count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM cover_cache", [], |row| row.get(0))?;
+        let oldest_article: Option<String> = conn
+            .query_row(
+                "SELECT MIN(published_at) FROM articles WHERE published_at IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+
+        // Get DB file size
+        let db_size = std::fs::metadata(db_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        Ok(CacheStats {
+            db_size_bytes: db_size,
+            article_count,
+            feed_count,
+            cover_cache_count,
+            oldest_article,
+        })
+    }
+
+    /// 清理旧已读文章的 content_html（保留元数据），清空 cover_cache
+    pub fn clear_cache(&self, days_old: i64) -> Result<CacheClearResult> {
+        let conn = self.conn.lock().unwrap();
+        let cutoff = (Utc::now() - chrono::Duration::days(days_old)).to_rfc3339();
+
+        // Clear content_html for old, read, non-starred articles
+        let articles_cleaned = conn.execute(
+            "UPDATE articles SET content_html = NULL, content_text = NULL, updated_at = ?1
+             WHERE is_read = 1 AND is_starred = 0 AND created_at < ?2
+             AND (content_html IS NOT NULL OR content_text IS NOT NULL)",
+            params![Utc::now().to_rfc3339(), cutoff],
+        )? as u64;
+
+        // Clear cover_cache
+        let cover_cleared = conn.execute("DELETE FROM cover_cache", [])? as u64;
+
+        Ok(CacheClearResult {
+            articles_cleaned,
+            cover_cache_cleared: cover_cleared,
+        })
+    }
+
+    /// 获取数据库文件路径（通过 PRAGMA database_list）
+    pub fn get_db_path(&self) -> Result<String> {
+        let conn = self.conn.lock().unwrap();
+        let path: String = conn.query_row(
+            "PRAGMA database_list",
+            [],
+            |row| row.get(2),
+        )?;
+        Ok(path)
+    }
+
+    // ─────────────────────────── Download History ───────────────────────────
+
+    /// 检查文章是否已下载
+    pub fn is_downloaded(&self, article_id: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM download_history WHERE article_id = ?1 AND status = 'sent')",
+            params![article_id],
+            |row| row.get(0),
+        )?;
+        Ok(exists)
+    }
+
+    /// 记录下载历史
+    pub fn mark_downloaded(&self, article_id: &str, torrent_url: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO download_history (article_id, torrent_url, downloaded_at, status) VALUES (?1, ?2, ?3, 'sent')",
+            params![article_id, torrent_url, Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    /// 获取所有已下载文章 ID 集合
+    pub fn get_downloaded_article_ids(&self) -> Result<std::collections::HashSet<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT article_id FROM download_history WHERE status = 'sent'")?;
+        let ids = stmt.query_map([], |row| row.get::<_, String>(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(ids)
+    }
+
+    /// 获取下载历史（按时间倒序）
+    pub fn get_download_history(&self, limit: i64) -> Result<Vec<crate::models::DownloadHistory>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT article_id, torrent_url, downloaded_at, status FROM download_history ORDER BY downloaded_at DESC LIMIT ?1"
+        )?;
+        let items = stmt.query_map(params![limit], |row| {
+            Ok(crate::models::DownloadHistory {
+                article_id: row.get(0)?,
+                torrent_url: row.get(1)?,
+                downloaded_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(2)?)
+                    .unwrap().with_timezone(&Utc),
+                status: row.get(3)?,
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+        Ok(items)
+    }
+
+    // ─────────────────────────── Download Config ───────────────────────────
+
+    /// 读取下载配置（存储在 settings 表，dl_ 前缀）
+    pub fn get_download_config(&self) -> Result<crate::models::DownloadConfig> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT key, value FROM settings WHERE key LIKE 'dl_%'")?;
+        let mut map = std::collections::HashMap::new();
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows { let (k, v) = row?; map.insert(k, v); }
+        let d = crate::models::DownloadConfig::default();
+        Ok(crate::models::DownloadConfig {
+            client_type: map.get("dl_type").cloned().unwrap_or(d.client_type),
+            host: map.get("dl_host").cloned().unwrap_or(d.host),
+            username: map.get("dl_username").cloned().unwrap_or(d.username),
+            password: map.get("dl_password").cloned().unwrap_or(d.password),
+            save_path: map.get("dl_save_path").cloned().unwrap_or(d.save_path),
+            auto_download: map.get("dl_auto").map(|v| v == "true").unwrap_or(d.auto_download),
+        })
+    }
+
+    /// 保存下载配置
+    pub fn save_download_config(&self, cfg: &crate::models::DownloadConfig) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let pairs = [
+            ("dl_type", cfg.client_type.as_str()),
+            ("dl_host", cfg.host.as_str()),
+            ("dl_username", cfg.username.as_str()),
+            ("dl_password", cfg.password.as_str()),
+            ("dl_save_path", cfg.save_path.as_str()),
+            ("dl_auto", if cfg.auto_download { "true" } else { "false" }),
+        ];
+        for (k, v) in &pairs {
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)", params![k, v])?;
+        }
+        Ok(())
+    }
+
+    // ─────────────────────────── Extended Cover Cache ───────────────────────────
+
+    /// 查询完整封面缓存（含 Bangumi 详情）
+    pub fn get_cached_cover_full(&self, query: &str) -> Result<Option<(String, String, String, Option<String>, Option<i32>, Option<String>, Option<f64>)>> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn.query_row(
+            "SELECT cover_url, COALESCE(bgm_id,''), COALESCE(bgm_name,''), summary, eps_count, air_date, rating FROM cover_cache WHERE query = ?1",
+            params![query],
+            |row| Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<i32>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<f64>>(6)?,
+            )),
+        ).optional()?;
+        Ok(result)
+    }
+
+    /// 缓存完整封面数据（含 Bangumi 详情）
+    pub fn set_cached_cover_full(&self, query: &str, cover_url: &str, bgm_id: &str, bgm_name: &str,
+        summary: Option<&str>, eps_count: Option<i32>, air_date: Option<&str>, rating: Option<f64>) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO cover_cache (query, cover_url, bgm_id, bgm_name, summary, eps_count, air_date, rating, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![query, cover_url, bgm_id, bgm_name, summary, eps_count, air_date, rating, Utc::now().to_rfc3339()],
         )?;
         Ok(())
     }

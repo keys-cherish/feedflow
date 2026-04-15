@@ -32,11 +32,34 @@ data class ParsedArticle(
     val summary: String?,
     val thumbnailUrl: String?,
     val publishedAt: Long,
+    val enclosureUrl: String? = null,
+    val contentLength: Long = 0L,
 )
+
+// Regex patterns matching ani-rss's StringEnum for torrent link types
+private val MAGNET_REGEX = Regex("""^magnet:\?xt=urn:btih:(\w+)""", RegexOption.IGNORE_CASE)
+private val ED2K_REGEX = Regex("""^ed2k://\|file\|([^|]+)\|(\d+)\|([A-Fa-f0-9]{32})\|/$""")
+
+/** Check if a URL is a downloadable torrent link (torrent file, magnet, or ed2k). */
+private fun isTorrentUrl(url: String): Boolean {
+    return url.endsWith(".torrent", ignoreCase = true)
+            || MAGNET_REGEX.containsMatchIn(url)
+            || ED2K_REGEX.containsMatchIn(url)
+}
 
 /**
  * Fetches and parses RSS 2.0 / Atom feeds using OkHttp + XmlPullParser.
  * No server needed — runs entirely on device.
+ *
+ * Torrent link extraction is compatible with ani-rss, supporting:
+ * - Mikan: <enclosure type="application/x-bittorrent"> + <torrent><contentLength>
+ * - Nyaa: nyaa:infoHash + nyaa:size namespace elements
+ * - DMHY: magnet: links in <enclosure url="">
+ * - bangumi.moe: <torrent><pubDate> nested element
+ * - acg.rip: standard <enclosure> with .torrent URL
+ * - <link> fallback if URL ends with .torrent
+ * - <guid> as infoHash if purely hex/numeric
+ * - ed2k:// links
  */
 object RssParser {
 
@@ -87,6 +110,7 @@ object RssParser {
     }
 
     // ---- RSS 2.0 parser -----------------------------------------------------
+    // Compatible with: Mikan, Nyaa, DMHY, bangumi.moe, acg.rip, any standard RSS
 
     private fun parseRss(xml: String, feedUrl: String): ParsedFeed {
         val xpp = newParser(xml)
@@ -97,8 +121,14 @@ object RssParser {
 
         var inItem = false
         var inChannel = false
+        var inTorrent = false
         var title = ""; var link = ""; var author = ""; var content = ""
         var summary = ""; var pubDate = ""; var thumbnail: String? = null
+        // Torrent extraction state
+        var enclosure: String? = null
+        var contentLength = 0L
+        var nyaaSize: String? = null
+        var guid: String? = null
 
         var eventType = xpp.eventType
         while (eventType != XmlPullParser.END_DOCUMENT) {
@@ -107,18 +137,61 @@ object RssParser {
                     val tag = xpp.name.lowercase()
                     when {
                         tag == "channel" -> inChannel = true
-                        tag == "item" -> { inItem = true; title = ""; link = ""; author = ""; content = ""; summary = ""; pubDate = ""; thumbnail = null }
+                        tag == "item" -> {
+                            inItem = true; title = ""; link = ""; author = ""; content = ""
+                            summary = ""; pubDate = ""; thumbnail = null
+                            enclosure = null; contentLength = 0L; nyaaSize = null; guid = null
+                            inTorrent = false
+                        }
                         inItem -> when (tag) {
                             "title" -> title = xpp.nextText().trim()
-                            "link" -> link = xpp.nextText().trim()
+                            "link" -> {
+                                // ani-rss: if <link> text ends with .torrent, use as torrent URL
+                                val linkText = xpp.nextText().trim()
+                                if (linkText.endsWith(".torrent", ignoreCase = true)) {
+                                    if (enclosure == null) enclosure = linkText
+                                } else {
+                                    link = linkText
+                                }
+                            }
                             "author", "dc:creator" -> author = xpp.nextText().trim()
                             "content:encoded" -> content = xpp.nextText().trim()
                             "description" -> summary = xpp.nextText().trim()
                             "pubdate", "dc:date" -> pubDate = xpp.nextText().trim()
+                            "guid" -> {
+                                // ani-rss: if guid is purely hex/numeric, it's an infoHash
+                                guid = xpp.nextText().trim()
+                            }
                             "enclosure" -> {
                                 val type = xpp.getAttributeValue(null, "type") ?: ""
-                                if (type.startsWith("image/")) thumbnail = xpp.getAttributeValue(null, "url")
+                                val encUrl = xpp.getAttributeValue(null, "url") ?: ""
+                                val encLen = xpp.getAttributeValue(null, "length")?.toLongOrNull() ?: 0L
+
+                                if (type.contains("bittorrent", ignoreCase = true)
+                                    || isTorrentUrl(encUrl)) {
+                                    // Mikan (.torrent), DMHY (magnet:), ed2k, etc.
+                                    enclosure = encUrl
+                                    if (encLen > 0) contentLength = encLen
+                                } else if (type.startsWith("image/")) {
+                                    thumbnail = encUrl
+                                }
                             }
+                            // Mikan/bangumi.moe: <torrent> namespace
+                            "torrent" -> inTorrent = true
+                            "contentlength" -> if (inTorrent) {
+                                val len = xpp.nextText().trim().toLongOrNull() ?: 0L
+                                if (len > 0) contentLength = len
+                            }
+                            // Nyaa: nyaa:infoHash and nyaa:size
+                            "nyaa:infohash" -> {
+                                val hash = xpp.nextText().trim()
+                                if (hash.isNotBlank() && enclosure == null) {
+                                    // Store as magnet for download client compatibility
+                                    enclosure = "magnet:?xt=urn:btih:$hash"
+                                }
+                            }
+                            "nyaa:size" -> nyaaSize = xpp.nextText().trim()
+                            // Media elements
                             "media:thumbnail", "media:content" -> {
                                 if (thumbnail == null) thumbnail = xpp.getAttributeValue(null, "url")
                             }
@@ -131,8 +204,16 @@ object RssParser {
                     }
                 }
                 XmlPullParser.END_TAG -> {
-                    if (xpp.name.lowercase() == "item" && inItem) {
+                    val endTag = xpp.name.lowercase()
+                    if (endTag == "torrent") inTorrent = false
+                    if (endTag == "item" && inItem) {
                         inItem = false
+
+                        // Resolve contentLength from nyaa:size if not set
+                        if (contentLength == 0L && nyaaSize != null) {
+                            contentLength = parseNyaaSize(nyaaSize!!)
+                        }
+
                         articles.add(ParsedArticle(
                             title = title,
                             url = link.ifBlank { null },
@@ -141,9 +222,11 @@ object RssParser {
                             summary = stripHtml(summary).take(300).ifBlank { null },
                             thumbnailUrl = thumbnail ?: extractFirstImage(content.ifBlank { summary }),
                             publishedAt = parseDate(pubDate),
+                            enclosureUrl = enclosure,
+                            contentLength = contentLength,
                         ))
                     }
-                    if (xpp.name.lowercase() == "channel") inChannel = false
+                    if (endTag == "channel") inChannel = false
                 }
             }
             eventType = xpp.next()
@@ -163,6 +246,7 @@ object RssParser {
         var inEntry = false
         var title = ""; var link = ""; var author = ""; var content = ""
         var summary = ""; var updated = ""; var thumbnail: String? = null
+        var enclosure: String? = null; var contentLength = 0L
 
         var eventType = xpp.eventType
         while (eventType != XmlPullParser.END_DOCUMENT) {
@@ -170,13 +254,21 @@ object RssParser {
                 XmlPullParser.START_TAG -> {
                     val tag = xpp.name.lowercase()
                     when {
-                        tag == "entry" -> { inEntry = true; title = ""; link = ""; author = ""; content = ""; summary = ""; updated = ""; thumbnail = null }
+                        tag == "entry" -> { inEntry = true; title = ""; link = ""; author = ""; content = ""; summary = ""; updated = ""; thumbnail = null; enclosure = null; contentLength = 0L }
                         inEntry -> when (tag) {
                             "title" -> title = xpp.nextText().trim()
                             "link" -> {
                                 val href = xpp.getAttributeValue(null, "href")
                                 val rel = xpp.getAttributeValue(null, "rel") ?: "alternate"
-                                if (rel == "alternate" && href != null && link.isBlank()) link = href
+                                val type = xpp.getAttributeValue(null, "type") ?: ""
+                                val encLen = xpp.getAttributeValue(null, "length")?.toLongOrNull() ?: 0L
+                                if (href != null && (rel == "enclosure"
+                                            && (type.contains("bittorrent", ignoreCase = true) || isTorrentUrl(href)))) {
+                                    enclosure = href
+                                    if (encLen > 0) contentLength = encLen
+                                } else if (rel == "alternate" && href != null && link.isBlank()) {
+                                    link = href
+                                }
                             }
                             "author" -> {} // will get name inside
                             "name" -> if (author.isBlank()) author = xpp.nextText().trim()
@@ -207,6 +299,8 @@ object RssParser {
                             summary = stripHtml(summary.ifBlank { content }).take(300).ifBlank { null },
                             thumbnailUrl = thumbnail ?: extractFirstImage(content.ifBlank { summary }),
                             publishedAt = parseDate(updated),
+                            enclosureUrl = enclosure,
+                            contentLength = contentLength,
                         ))
                     }
                 }
@@ -231,20 +325,48 @@ object RssParser {
         "yyyy-MM-dd'T'HH:mm:ss'Z'",
         "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
         "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSSSS",     // bangumi.moe microseconds
+        "yyyy-MM-dd'T'HH:mm:ss",
         "yyyy-MM-dd HH:mm:ss",
         "yyyy-MM-dd",
     )
 
     fun parseDate(dateStr: String): Long {
         if (dateStr.isBlank()) return 0L
+        // Strip trailing sub-second precision that SimpleDateFormat can't handle
+        val cleaned = dateStr.replace(Regex("\\.\\d+$"), "")
         for (fmt in dateFormats) {
             try {
                 val sdf = SimpleDateFormat(fmt, Locale.US)
                 sdf.timeZone = TimeZone.getTimeZone("UTC")
-                return sdf.parse(dateStr)?.time ?: continue
+                return sdf.parse(cleaned)?.time ?: continue
             } catch (_: Exception) { }
         }
+        // Try original string as-is (in case cleaning broke something)
+        if (cleaned != dateStr) {
+            for (fmt in dateFormats) {
+                try {
+                    val sdf = SimpleDateFormat(fmt, Locale.US)
+                    sdf.timeZone = TimeZone.getTimeZone("UTC")
+                    return sdf.parse(dateStr)?.time ?: continue
+                } catch (_: Exception) { }
+            }
+        }
         return 0L
+    }
+
+    /** Parse nyaa:size string like "1.2 GiB" or "350.5 MiB" to bytes. */
+    private fun parseNyaaSize(sizeStr: String): Long {
+        val match = Regex("""([\d.]+)\s*(GiB|MiB|KiB|GB|MB|KB|TB|TiB)""", RegexOption.IGNORE_CASE).find(sizeStr) ?: return 0L
+        val value = match.groupValues[1].toDoubleOrNull() ?: return 0L
+        val unit = match.groupValues[2].uppercase()
+        return when {
+            unit.startsWith("T") -> (value * 1024 * 1024 * 1024 * 1024).toLong()
+            unit.startsWith("G") -> (value * 1024 * 1024 * 1024).toLong()
+            unit.startsWith("M") -> (value * 1024 * 1024).toLong()
+            unit.startsWith("K") -> (value * 1024).toLong()
+            else -> 0L
+        }
     }
 
     fun md5(input: String): String {

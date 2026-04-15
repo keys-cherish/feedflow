@@ -1,6 +1,7 @@
 services:
   feedflow:
     build: .
+    container_name: feedflow
     ports:
       - "3200:3200"
     volumes:
@@ -8,6 +9,22 @@ services:
     restart: unless-stopped
     environment:
       - FEEDFLOW_LOG_LEVEL=info
+      - FEEDFLOW_REFRESH_INTERVAL=900
+      - TZ=Asia/Shanghai
+      # Uncomment to enable authentication:
+      # - FEEDFLOW_AUTH_TOKEN=your-secret-token
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3200/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   feedflow-data:

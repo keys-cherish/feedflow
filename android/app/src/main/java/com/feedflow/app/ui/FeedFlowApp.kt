@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.RssFeed
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
@@ -33,6 +35,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import java.net.URLDecoder
+import java.net.URLEncoder
 
 private data class NavItem(
     val label: String,
@@ -42,6 +46,7 @@ private data class NavItem(
 
 private val navItems = listOf(
     NavItem("首页", Icons.Filled.Home, Icons.Outlined.Home),
+    NavItem("番剧", Icons.Filled.PlayCircle, Icons.Outlined.PlayCircle),
     NavItem("订阅", Icons.Filled.RssFeed, Icons.Outlined.RssFeed),
     NavItem("设置", Icons.Filled.Settings, Icons.Outlined.Settings),
 )
@@ -49,15 +54,18 @@ private val navItems = listOf(
 // Route constants
 private object Routes {
     const val HOME = "home"
+    const val ANIME = "anime"
     const val FEEDS = "feeds"
     const val SETTINGS = "settings"
     const val ARTICLE_DETAIL = "article/{articleId}"
+    const val ANIME_DETAIL = "anime_detail/{animeName}"
 
     fun articleDetail(articleId: String) = "article/$articleId"
+    fun animeDetail(animeName: String) = "anime_detail/${URLEncoder.encode(animeName, "UTF-8")}"
 }
 
 // Map tab index to route for bottom nav
-private val tabRoutes = listOf(Routes.HOME, Routes.FEEDS, Routes.SETTINGS)
+private val tabRoutes = listOf(Routes.HOME, Routes.ANIME, Routes.FEEDS, Routes.SETTINGS)
 
 @Composable
 fun FeedFlowApp() {
@@ -70,7 +78,7 @@ fun FeedFlowApp() {
         val navBackStackEntry by navController.currentBackStackEntryAsState()
         val currentRoute = navBackStackEntry?.destination?.route
 
-        // Determine if bottom bar should be visible (hide on article detail)
+        // Determine if bottom bar should be visible (hide on detail screens)
         val showBottomBar = currentRoute in tabRoutes
 
         // Track selected tab -- derive from current route when on a tab screen
@@ -127,6 +135,15 @@ fun FeedFlowApp() {
                     )
                 }
 
+                composable(Routes.ANIME) {
+                    AnimeScreen(
+                        repo = repo,
+                        onAnimeClick = { animeName ->
+                            navController.navigate(Routes.animeDetail(animeName))
+                        },
+                    )
+                }
+
                 composable(Routes.FEEDS) {
                     FeedsScreen(repo = repo)
                 }
@@ -148,6 +165,19 @@ fun FeedFlowApp() {
                     val articleId = backStackEntry.arguments?.getString("articleId") ?: return@composable
                     ArticleDetailScreen(
                         articleId = articleId,
+                        repo = repo,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable(
+                    route = Routes.ANIME_DETAIL,
+                    arguments = listOf(navArgument("animeName") { type = NavType.StringType }),
+                ) { backStackEntry ->
+                    val encodedName = backStackEntry.arguments?.getString("animeName") ?: return@composable
+                    val animeName = URLDecoder.decode(encodedName, "UTF-8")
+                    AnimeDetailScreen(
+                        animeName = animeName,
                         repo = repo,
                         onBack = { navController.popBackStack() },
                     )
