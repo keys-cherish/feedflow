@@ -4,11 +4,15 @@ import com.feedflow.app.*
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +34,7 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -69,10 +74,6 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
 
-// ---------------------------------------------------------------------------
-// Feeds screen -- subscription list + per-feed article detail
-// ---------------------------------------------------------------------------
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FeedsScreen(repo: FeedRepository) {
@@ -82,41 +83,35 @@ fun FeedsScreen(repo: FeedRepository) {
     val feeds = remember { mutableStateListOf<Feed>() }
     var isLoading by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
-
-    // If non-null we show the article list for that feed
     var selectedFeed by remember { mutableStateOf<Feed?>(null) }
 
-    // Add feed dialog
     var showAddDialog by remember { mutableStateOf(false) }
     var newFeedUrl by remember { mutableStateOf("") }
     var isAdding by remember { mutableStateOf(false) }
+    var addError by remember { mutableStateOf<String?>(null) }
 
     fun loadFeeds() {
         scope.launch {
             isRefreshing = true
-            val resp = repo.getFeeds()
-            if (resp.success) {
+            try {
+                val list = repo.getFeeds()
                 feeds.clear()
-                feeds.addAll(resp.data.orEmpty())
-            } else {
-                snackbarHostState.showSnackbar(resp.error ?: "加载失败")
+                feeds.addAll(list)
+            } catch (e: Exception) {
+                snackbarHostState.showSnackbar("加载失败: ${e.message}")
             }
             isRefreshing = false
         }
     }
 
-    // Initial load
     LaunchedEffect(Unit) {
         isLoading = true
-        val resp = repo.getFeeds()
-        if (resp.success) {
-            feeds.clear()
-            feeds.addAll(resp.data.orEmpty())
-        }
+        try {
+            feeds.addAll(repo.getFeeds())
+        } catch (_: Exception) { }
         isLoading = false
     }
 
-    // --- Sub-screen: feed article list ---
     if (selectedFeed != null) {
         FeedArticleListScreen(
             feed = selectedFeed!!,
@@ -125,8 +120,6 @@ fun FeedsScreen(repo: FeedRepository) {
         )
         return
     }
-
-    // --- Main feed list ---
 
     Scaffold(
         topBar = {
@@ -148,9 +141,7 @@ fun FeedsScreen(repo: FeedRepository) {
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = { loadFeeds() },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
+            modifier = Modifier.fillMaxSize().padding(padding),
         ) {
             when {
                 isLoading && feeds.isEmpty() -> {
@@ -187,11 +178,11 @@ fun FeedsScreen(repo: FeedRepository) {
                                 onClick = { selectedFeed = feed },
                                 onDelete = {
                                     scope.launch {
-                                        val resp = repo.deleteFeed(feed.id)
-                                        if (resp.success) {
+                                        try {
+                                            repo.deleteFeed(feed.id)
                                             feeds.removeAll { it.id == feed.id }
-                                        } else {
-                                            snackbarHostState.showSnackbar(resp.error ?: "删除失败")
+                                        } catch (e: Exception) {
+                                            snackbarHostState.showSnackbar("删除失败: ${e.message}")
                                         }
                                     }
                                 },
@@ -203,33 +194,45 @@ fun FeedsScreen(repo: FeedRepository) {
         }
     }
 
-    // --- Add feed dialog ---
     if (showAddDialog) {
         AlertDialog(
-            onDismissRequest = { showAddDialog = false },
+            onDismissRequest = { showAddDialog = false; addError = null },
             title = { Text("添加订阅源") },
             text = {
-                OutlinedTextField(
-                    value = newFeedUrl,
-                    onValueChange = { newFeedUrl = it },
-                    label = { Text("RSS / Atom 链接") },
-                    placeholder = { Text("https://example.com/feed.xml") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                Column {
+                    OutlinedTextField(
+                        value = newFeedUrl,
+                        onValueChange = { newFeedUrl = it; addError = null },
+                        label = { Text("RSS / Atom 链接") },
+                        placeholder = { Text("https://example.com/feed.xml") },
+                        singleLine = true,
+                        isError = addError != null,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (addError != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = addError!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
                         scope.launch {
                             isAdding = true
-                            val resp = repo.addFeed(newFeedUrl.trim())
-                            if (resp.success && resp.data != null) {
-                                feeds.add(0, resp.data)
+                            addError = null
+                            val result = repo.addFeed(newFeedUrl.trim())
+                            result.onSuccess { feed ->
+                                feeds.add(0, feed)
                                 newFeedUrl = ""
                                 showAddDialog = false
-                            } else {
-                                snackbarHostState.showSnackbar(resp.error ?: "添加失败")
+                                snackbarHostState.showSnackbar("已订阅「${feed.title}」")
+                            }.onFailure { e ->
+                                addError = e.message ?: "添加失败，请检查链接是否正确"
                             }
                             isAdding = false
                         }
@@ -247,15 +250,12 @@ fun FeedsScreen(repo: FeedRepository) {
                 TextButton(onClick = {
                     showAddDialog = false
                     newFeedUrl = ""
+                    addError = null
                 }) { Text("取消") }
             },
         )
     }
 }
-
-// ---------------------------------------------------------------------------
-// Single feed item in the list
-// ---------------------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -276,7 +276,6 @@ private fun FeedItem(
     SwipeToDismissBox(
         state = dismissState,
         backgroundContent = {
-            // Red delete background revealed on swipe
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -304,18 +303,13 @@ private fun FeedItem(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
+                modifier = Modifier.fillMaxWidth().padding(14.dp),
             ) {
-                // Feed icon
                 if (!feed.iconUrl.isNullOrBlank()) {
                     AsyncImage(
                         model = feed.iconUrl,
                         contentDescription = null,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(8.dp)),
+                        modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)),
                         contentScale = ContentScale.Crop,
                     )
                 } else {
@@ -337,7 +331,6 @@ private fun FeedItem(
 
                 Spacer(Modifier.width(12.dp))
 
-                // Title + description
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = feed.title,
@@ -357,7 +350,6 @@ private fun FeedItem(
                     }
                 }
 
-                // Unread count badge
                 if (feed.unreadCount > 0) {
                     Spacer(Modifier.width(8.dp))
                     Box(
@@ -379,10 +371,6 @@ private fun FeedItem(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Per-feed article list (shown when tapping a feed)
-// ---------------------------------------------------------------------------
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FeedArticleListScreen(
@@ -398,12 +386,19 @@ private fun FeedArticleListScreen(
     var isRefreshing by remember { mutableStateOf(false) }
 
     LaunchedEffect(feed.id) {
-        val resp = repo.getFeedArticles(feed.id, limit = 50)
-        if (resp.success) {
-            articles.clear()
-            articles.addAll(resp.data.orEmpty())
-        }
+        articles.addAll(repo.getFeedArticles(feed.id, limit = 50))
         isLoading = false
+    }
+
+    fun refresh() {
+        scope.launch {
+            isRefreshing = true
+            repo.refreshFeed(feed.id)
+            val list = repo.getFeedArticles(feed.id, limit = 50)
+            articles.clear()
+            articles.addAll(list)
+            isRefreshing = false
+        }
     }
 
     Scaffold(
@@ -418,7 +413,6 @@ private fun FeedArticleListScreen(
                     }
                 },
                 actions = {
-                    // Mark all read
                     IconButton(onClick = {
                         scope.launch {
                             repo.markFeedAllRead(feed.id)
@@ -429,19 +423,7 @@ private fun FeedArticleListScreen(
                     }) {
                         Icon(Icons.Default.DoneAll, contentDescription = "全部标记已读")
                     }
-                    // Refresh this feed
-                    IconButton(onClick = {
-                        scope.launch {
-                            isRefreshing = true
-                            repo.refreshFeed(feed.id)
-                            val resp = repo.getFeedArticles(feed.id, limit = 50)
-                            if (resp.success) {
-                                articles.clear()
-                                articles.addAll(resp.data.orEmpty())
-                            }
-                            isRefreshing = false
-                        }
-                    }) {
+                    IconButton(onClick = { refresh() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "刷新")
                     }
                 },
@@ -454,21 +436,8 @@ private fun FeedArticleListScreen(
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = isRefreshing,
-            onRefresh = {
-                scope.launch {
-                    isRefreshing = true
-                    repo.refreshFeed(feed.id)
-                    val resp = repo.getFeedArticles(feed.id, limit = 50)
-                    if (resp.success) {
-                        articles.clear()
-                        articles.addAll(resp.data.orEmpty())
-                    }
-                    isRefreshing = false
-                }
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
+            onRefresh = { refresh() },
+            modifier = Modifier.fillMaxSize().padding(padding),
         ) {
             when {
                 isLoading -> {
@@ -499,20 +468,16 @@ private fun FeedArticleListScreen(
                                     scope.launch { repo.markArticleRead(article.id) }
                                     val idx = articles.indexOfFirst { it.id == article.id }
                                     if (idx >= 0) articles[idx] = articles[idx].copy(isRead = true)
-
                                     article.url?.let { url ->
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                        context.startActivity(intent)
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                                     }
                                 },
                                 onStarToggle = {
                                     scope.launch {
-                                        val resp = repo.toggleArticleStar(article.id)
-                                        if (resp.success && resp.data != null) {
+                                        val updated = repo.toggleArticleStar(article.id)
+                                        if (updated != null) {
                                             val idx = articles.indexOfFirst { it.id == article.id }
-                                            if (idx >= 0) {
-                                                articles[idx] = articles[idx].copy(isStarred = resp.data.isStarred)
-                                            }
+                                            if (idx >= 0) articles[idx] = articles[idx].copy(isStarred = updated.isStarred)
                                         }
                                     }
                                 },

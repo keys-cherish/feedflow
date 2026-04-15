@@ -1,6 +1,7 @@
 package com.feedflow.app.ui
 import com.feedflow.app.*
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +41,64 @@ import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 
 // ---------------------------------------------------------------------------
+// Smart title extraction — when title is just a date, use summary instead
+// ---------------------------------------------------------------------------
+
+private val DATE_PATTERN = Regex("""^\d{4}[-/\.]\d{1,2}[-/\.]\d{1,2}$""")
+private val DATE_PREFIX = Regex("""^\d{4}[-/\.]\d{1,2}[-/\.]\d{1,2}\s*""")
+private val STRIP_HTML = Regex("""<[^>]+>""")
+
+fun getDisplayTitle(article: Article): String {
+    val title = article.title.trim()
+    // If title IS a date (e.g. "2026-04-15"), extract real title from summary
+    if (title.isEmpty() || DATE_PATTERN.matches(title)) {
+        val source = (article.summary ?: "")
+            .replace(STRIP_HTML, " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        // Strip leading dates and common prefixes
+        val cleaned = source
+            .replace(DATE_PREFIX, "")
+            .replace(Regex("^视频版[：:：]?\\s*"), "")
+            .trim()
+        // Take first sentence as title
+        val firstSentence = cleaned.split(Regex("[\\n。]"))
+            .firstOrNull { it.trim().length > 5 }
+            ?.trim()
+        if (firstSentence != null && firstSentence.length > 5) {
+            return if (firstSentence.length > 80) firstSentence.take(77) + "..." else firstSentence
+        }
+    }
+    // If title starts with a date, strip the date prefix
+    val stripped = title.replace(DATE_PREFIX, "").trim()
+    if (stripped.length > 5) return stripped
+    return title.ifEmpty { "（无标题）" }
+}
+
+/** Clean summary text: strip HTML, remove content that duplicates the title, remove date prefixes */
+fun getCleanSummary(article: Article, displayTitle: String): String? {
+    val raw = article.summary ?: return null
+    var text = raw
+        .replace(STRIP_HTML, " ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+    // Remove leading dates
+    text = text.replace(DATE_PREFIX, "").trim()
+    // Remove the display title if it appears at the start of summary
+    if (text.startsWith(displayTitle)) {
+        text = text.removePrefix(displayTitle).trim()
+    }
+    // Remove original title if it appears
+    val origTitle = article.title.trim()
+    if (origTitle.isNotEmpty() && text.startsWith(origTitle)) {
+        text = text.removePrefix(origTitle).trim()
+    }
+    // Strip leading punctuation
+    text = text.trimStart('：', ':', '，', ',', '、', ' ')
+    return text.ifBlank { null }
+}
+
+// ---------------------------------------------------------------------------
 // Article card -- the primary content unit in the timeline & feed detail
 // ---------------------------------------------------------------------------
 
@@ -64,10 +123,14 @@ fun ArticleCard(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
+        border = androidx.compose.foundation.BorderStroke(
+            0.5.dp,
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.12f),
         ),
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -123,9 +186,10 @@ fun ArticleCard(
 
             Spacer(Modifier.height(8.dp))
 
-            // -- Title --
+            // -- Title (bold, clearly separated) --
+            val displayTitle = getDisplayTitle(article)
             Text(
-                text = article.title,
+                text = displayTitle,
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -136,20 +200,21 @@ fun ArticleCard(
                 },
             )
 
-            // -- Summary or AI summary --
-            val snippet = article.aiSummary ?: article.summary
-            if (!snippet.isNullOrBlank()) {
-                Spacer(Modifier.height(4.dp))
+            // -- Summary (de-duplicated, visually separated from title) --
+            val cleanSnippet = getCleanSummary(article, displayTitle)
+            if (!cleanSnippet.isNullOrBlank()) {
+                Spacer(Modifier.height(6.dp))
                 Text(
-                    text = snippet,
+                    text = cleanSnippet,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = MaterialTheme.typography.bodySmall.lineHeight,
                 )
             }
 
-            // -- Optional thumbnail --
+            // -- Optional thumbnail (flush with card edges, no container) --
             if (!article.thumbnailUrl.isNullOrBlank()) {
                 Spacer(Modifier.height(8.dp))
                 AsyncImage(
@@ -158,7 +223,7 @@ fun ArticleCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(160.dp)
-                        .clip(RoundedCornerShape(12.dp)),
+                        .clip(RoundedCornerShape(8.dp)),
                     contentScale = ContentScale.Crop,
                 )
             }

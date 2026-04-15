@@ -7,6 +7,7 @@ use uuid::Uuid;
 use crate::models::{Article, Feed, FetchResult};
 
 /// RSS 抓取引擎 — 负责从远端拉取 Feed 并解析为统一的数据模型
+#[derive(Clone)]
 pub struct FeedFetcher {
     client: reqwest::Client,
 }

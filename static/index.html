@@ -16,8 +16,8 @@
   --accent: #0f3460;
   --highlight: #e94560;
   --text: #e0e0e0;
-  --text-dim: #7a7a8e;
-  --text-muted: #555568;
+  --text-dim: #9a9aae;
+  --text-muted: #7a7a8e;
   --border: #2a2a4a;
   --hover: rgba(233,69,96,0.12);
   --surface: #1e1e38;
@@ -188,6 +188,8 @@ a:hover { text-decoration: underline; }
   color: var(--text-dim);
   transition: background 0.15s, color 0.15s;
   line-height: 1;
+  min-width: 32px;
+  text-align: center;
 }
 .theme-switcher .theme-btn:hover { color: var(--text); }
 .theme-switcher .theme-btn.active {
@@ -218,7 +220,7 @@ a:hover { text-decoration: underline; }
 .sidebar-item {
   display: flex;
   align-items: center;
-  padding: 8px 14px;
+  padding: 6px 14px;
   cursor: pointer;
   transition: background 0.12s;
   gap: 8px;
@@ -249,6 +251,13 @@ a:hover { text-decoration: underline; }
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 14px;
+}
+
+.feed-status.error {
+  color: #e94560;
+  font-size: 12px;
+  flex-shrink: 0;
+  margin-left: 4px;
 }
 
 .badge {
@@ -521,13 +530,6 @@ a:hover { text-decoration: underline; }
   max-width: 720px;
 }
 
-#reader-body .article-content img {
-  max-width: 100%;
-  height: auto;
-  border-radius: 6px;
-  margin: 12px 0;
-}
-
 #reader-body .article-content pre {
   background: var(--code-bg);
   padding: 12px;
@@ -574,6 +576,34 @@ a:hover { text-decoration: underline; }
 #reader-body .article-content th { background: var(--code-bg); }
 #reader-body .article-content hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
 #reader-body .article-content a { color: var(--highlight); }
+
+/* Embedded iframe reader for articles without content */
+.reader-embed-hint {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: var(--code-bg);
+  border-radius: 6px;
+}
+.reader-iframe {
+  width: 100%;
+  height: calc(100vh - 200px);
+  min-height: 500px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+/* ===== Image fixes for article content ===== */
+#reader-body .article-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 12px 0;
+  display: block;
+  object-fit: contain;
+}
 
 /* ===== Modal Overlay ===== */
 .modal-overlay {
@@ -1340,6 +1370,30 @@ a:hover { text-decoration: underline; }
     return div.innerHTML;
   }
 
+  /* 智能标题提取：当标题是纯日期(YYYY-MM-DD等)时，从摘要/正文提取真正标题 */
+  function getDisplayTitle(article) {
+    var title = (article.title || "").trim();
+    /* 检测纯日期标题 */
+    if (/^\d{4}[-\/\.]\d{1,2}[-\/\.]\d{1,2}$/.test(title) ||
+        /^\d{1,2}[-\/\.]\d{1,2}[-\/\.]\d{4}$/.test(title) ||
+        title === "") {
+      var source = article.summary || article.content_text || "";
+      /* 去掉HTML标签 */
+      source = source.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      /* 跳过开头的日期 */
+      source = source.replace(/^\d{4}[-\/\.]\d{1,2}[-\/\.]\d{1,2}\s*/, "");
+      var firstLine = source.split(/[\n。！？!?]/).filter(function(l) {
+        var s = l.trim();
+        return s.length > 3 && !/^\d{4}[-\/\.]\d{1,2}[-\/\.]\d{1,2}$/.test(s);
+      })[0];
+      if (firstLine && firstLine.trim().length > 3) {
+        var t = firstLine.trim();
+        return t.length > 120 ? t.substring(0, 117) + "..." : t;
+      }
+    }
+    return title || "（无标题）";
+  }
+
   function sanitizeHtml(html) {
     var temp = document.createElement("div");
     temp.innerHTML = html;
@@ -1408,10 +1462,16 @@ a:hover { text-decoration: underline; }
       iconHtml = '<span class="icon" style="font-size:12px;">&#9673;</span>';
     }
     var folderAttr = extraFolderId ? ' data-folder-id="' + extraFolderId + '"' : '';
+    /* 显示feed描述（截断）和错误状态 */
+    var descHtml = '';
+    if (feed.error_count > 0 && feed.last_error) {
+      descHtml = '<span class="feed-status error" title="' + escapeHtml(feed.last_error) + '">&#9888;</span>';
+    }
     return '<div class="sidebar-item' + (isActive ? " active" : "") +
       '" data-view="feed:' + feed.id + '" data-feed-id="' + feed.id + '"' + folderAttr + '>' +
       iconHtml +
       '<span class="label">' + escapeHtml(feed.title || feed.url) + '</span>' +
+      descHtml +
       '</div>';
   }
 
@@ -1486,6 +1546,7 @@ a:hover { text-decoration: underline; }
     var html = "";
     for (var i = startIdx; i < state.articles.length; i++) {
       var a = state.articles[i];
+      var displayTitle = getDisplayTitle(a);
       var feedName = "";
       if (state.feedMap[a.feed_id]) {
         feedName = state.feedMap[a.feed_id].title || state.feedMap[a.feed_id].url || "";
@@ -1504,7 +1565,7 @@ a:hover { text-decoration: underline; }
         (!a.is_read ? " unread" : "") +
         (isActive ? " active" : "") +
         '" data-article-index="' + i + '" data-article-id="' + a.id + '">' +
-        '<div class="a-title">' + escapeHtml(a.title || "（无标题）") + '</div>' +
+        '<div class="a-title">' + escapeHtml(displayTitle) + '</div>' +
         '<div class="a-meta">' +
         '<span class="a-feed-name">' + escapeHtml(feedName) + '</span>' +
         '<span>&middot;</span>' +
@@ -1559,7 +1620,7 @@ a:hover { text-decoration: underline; }
     dom.readerHeader.style.display = "block";
     dom.readerBody.style.display = "block";
 
-    dom.readerTitle.textContent = a.title || "（无标题）";
+    dom.readerTitle.textContent = getDisplayTitle(a);
 
     var feedName = "";
     if (state.feedMap[a.feed_id]) {
@@ -1587,6 +1648,13 @@ a:hover { text-decoration: underline; }
       dom.readerContent.innerHTML = "<p>" + escapeHtml(a.content_text).replace(/\n/g, "<br>") + "</p>";
     } else if (a.summary) {
       dom.readerContent.innerHTML = "<p>" + escapeHtml(a.summary).replace(/\n/g, "<br>") + "</p>";
+    } else if (a.url) {
+      /* 无正文时显示嵌入式阅读框 */
+      dom.readerContent.innerHTML =
+        '<div class="reader-embed-hint">' +
+        '<p>该文章未提供正文内容，已为您加载原始页面：</p>' +
+        '</div>' +
+        '<iframe class="reader-iframe" src="' + escapeHtml(a.url) + '" sandbox="allow-same-origin allow-scripts allow-popups" loading="lazy"></iframe>';
     } else {
       dom.readerContent.innerHTML = '<p style="color:var(--text-muted);">暂无内容</p>';
     }
@@ -2114,7 +2182,7 @@ a:hover { text-decoration: underline; }
           feedName = state.feedMap[a.feed_id].title || state.feedMap[a.feed_id].url || "";
         }
         html += '<div class="article-item" data-search-article-id="' + a.id + '">' +
-          '<div class="a-title">' + escapeHtml(a.title || "（无标题）") + '</div>' +
+          '<div class="a-title">' + escapeHtml(getDisplayTitle(a)) + '</div>' +
           '<div class="a-meta">' +
           '<span class="a-feed-name">' + escapeHtml(feedName) + '</span>' +
           '<span>&middot;</span>' +

@@ -1,6 +1,8 @@
 package com.feedflow.app.ui
 
 import android.os.Build
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -86,7 +88,7 @@ fun FeedFlowTheme(
         else -> isSystemInDarkTheme()
     }
 
-    val colorScheme = when {
+    val targetScheme = when {
         // Android 12+ can derive colors from the user's wallpaper
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val ctx = LocalContext.current
@@ -95,6 +97,28 @@ fun FeedFlowTheme(
         useDark -> DarkColors
         else -> LightColors
     }
+
+    // Smooth color transition animation (400ms)
+    val animSpec = tween<Color>(durationMillis = 400)
+    val colorScheme = targetScheme.copy(
+        primary = animateColorAsState(targetScheme.primary, animSpec).value,
+        onPrimary = animateColorAsState(targetScheme.onPrimary, animSpec).value,
+        primaryContainer = animateColorAsState(targetScheme.primaryContainer, animSpec).value,
+        onPrimaryContainer = animateColorAsState(targetScheme.onPrimaryContainer, animSpec).value,
+        secondary = animateColorAsState(targetScheme.secondary, animSpec).value,
+        onSecondary = animateColorAsState(targetScheme.onSecondary, animSpec).value,
+        secondaryContainer = animateColorAsState(targetScheme.secondaryContainer, animSpec).value,
+        onSecondaryContainer = animateColorAsState(targetScheme.onSecondaryContainer, animSpec).value,
+        tertiary = animateColorAsState(targetScheme.tertiary, animSpec).value,
+        onTertiary = animateColorAsState(targetScheme.onTertiary, animSpec).value,
+        surface = animateColorAsState(targetScheme.surface, animSpec).value,
+        onSurface = animateColorAsState(targetScheme.onSurface, animSpec).value,
+        surfaceVariant = animateColorAsState(targetScheme.surfaceVariant, animSpec).value,
+        onSurfaceVariant = animateColorAsState(targetScheme.onSurfaceVariant, animSpec).value,
+        outline = animateColorAsState(targetScheme.outline, animSpec).value,
+        background = animateColorAsState(targetScheme.background, animSpec).value,
+        onBackground = animateColorAsState(targetScheme.onBackground, animSpec).value,
+    )
 
     MaterialTheme(
         colorScheme = colorScheme,

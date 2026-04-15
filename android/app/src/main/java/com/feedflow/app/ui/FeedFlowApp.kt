@@ -1,14 +1,14 @@
 package com.feedflow.app.ui
 import com.feedflow.app.*
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.RssFeed
 import androidx.compose.material.icons.outlined.Settings
@@ -18,8 +18,6 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -29,10 +27,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-
-// ---------------------------------------------------------------------------
-// Navigation items
-// ---------------------------------------------------------------------------
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 
 private data class NavItem(
     val label: String,
@@ -43,68 +43,113 @@ private data class NavItem(
 private val navItems = listOf(
     NavItem("首页", Icons.Filled.Home, Icons.Outlined.Home),
     NavItem("订阅", Icons.Filled.RssFeed, Icons.Outlined.RssFeed),
-    NavItem("发现", Icons.Filled.Explore, Icons.Outlined.Explore),
     NavItem("设置", Icons.Filled.Settings, Icons.Outlined.Settings),
 )
 
-// ---------------------------------------------------------------------------
-// Root composable
-// ---------------------------------------------------------------------------
+// Route constants
+private object Routes {
+    const val HOME = "home"
+    const val FEEDS = "feeds"
+    const val SETTINGS = "settings"
+    const val ARTICLE_DETAIL = "article/{articleId}"
 
-/**
- * Top-level composable that wires together theming, navigation, and the
- * shared [FeedRepository] instance.
- *
- * Called directly from [com.feedflow.app.MainActivity.onCreate].
- */
+    fun articleDetail(articleId: String) = "article/$articleId"
+}
+
+// Map tab index to route for bottom nav
+private val tabRoutes = listOf(Routes.HOME, Routes.FEEDS, Routes.SETTINGS)
+
 @Composable
 fun FeedFlowApp() {
     val context = LocalContext.current
-
-    // Single repository instance shared across all screens
     val repo = remember { FeedRepository(context.applicationContext) }
-
-    // Read theme preference and track it as state for recomposition
-    val storedTheme by repo.themeModeFlow.collectAsState(initial = "system")
-    var themeMode by remember { mutableStateOf("system") }
-
-    // Keep local theme in sync with DataStore
-    LaunchedEffect(storedTheme) { themeMode = storedTheme }
-
-    // Initialize Retrofit on first composition (non-blocking)
-    LaunchedEffect(Unit) { repo.rebuildApi() }
+    var themeMode by remember { mutableStateOf(repo.getThemeMode()) }
 
     FeedFlowTheme(themeMode = themeMode) {
+        val navController = rememberNavController()
+        val navBackStackEntry by navController.currentBackStackEntryAsState()
+        val currentRoute = navBackStackEntry?.destination?.route
+
+        // Determine if bottom bar should be visible (hide on article detail)
+        val showBottomBar = currentRoute in tabRoutes
+
+        // Track selected tab -- derive from current route when on a tab screen
         val selectedTab = rememberSaveable { mutableIntStateOf(0) }
+        if (currentRoute != null && currentRoute in tabRoutes) {
+            selectedTab.intValue = tabRoutes.indexOf(currentRoute)
+        }
 
         Scaffold(
             bottomBar = {
-                NavigationBar {
-                    navItems.forEachIndexed { index, item ->
-                        NavigationBarItem(
-                            selected = selectedTab.intValue == index,
-                            onClick = { selectedTab.intValue = index },
-                            icon = {
-                                Icon(
-                                    imageVector = if (selectedTab.intValue == index) item.selectedIcon else item.unselectedIcon,
-                                    contentDescription = item.label,
-                                )
-                            },
-                            label = { Text(item.label) },
-                        )
+                if (showBottomBar) {
+                    NavigationBar {
+                        navItems.forEachIndexed { index, item ->
+                            NavigationBarItem(
+                                selected = selectedTab.intValue == index,
+                                onClick = {
+                                    if (selectedTab.intValue != index) {
+                                        selectedTab.intValue = index
+                                        navController.navigate(tabRoutes[index]) {
+                                            // Pop back to home to avoid stacking tab destinations
+                                            popUpTo(Routes.HOME) { saveState = true }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    }
+                                },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (selectedTab.intValue == index) item.selectedIcon else item.unselectedIcon,
+                                        contentDescription = item.label,
+                                    )
+                                },
+                                label = { Text(item.label) },
+                            )
+                        }
                     }
                 }
             },
         ) { innerPadding ->
-            // Apply bottom-nav padding so screens don't render behind it
-            Box(modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding())) {
-                when (selectedTab.intValue) {
-                    0 -> HomeScreen(repo = repo)
-                    1 -> FeedsScreen(repo = repo)
-                    2 -> DiscoverScreen(repo = repo)
-                    3 -> SettingsScreen(
+            NavHost(
+                navController = navController,
+                startDestination = Routes.HOME,
+                modifier = Modifier.padding(bottom = if (showBottomBar) innerPadding.calculateBottomPadding() else innerPadding.calculateBottomPadding()),
+                // Disable default crossfade to keep things snappy
+                enterTransition = { EnterTransition.None },
+                exitTransition = { ExitTransition.None },
+            ) {
+                composable(Routes.HOME) {
+                    HomeScreen(
                         repo = repo,
-                        onThemeChanged = { newMode -> themeMode = newMode },
+                        onArticleClick = { articleId ->
+                            navController.navigate(Routes.articleDetail(articleId))
+                        },
+                    )
+                }
+
+                composable(Routes.FEEDS) {
+                    FeedsScreen(repo = repo)
+                }
+
+                composable(Routes.SETTINGS) {
+                    SettingsScreen(
+                        repo = repo,
+                        onThemeChanged = { newMode ->
+                            repo.setThemeMode(newMode)
+                            themeMode = newMode
+                        },
+                    )
+                }
+
+                composable(
+                    route = Routes.ARTICLE_DETAIL,
+                    arguments = listOf(navArgument("articleId") { type = NavType.StringType }),
+                ) { backStackEntry ->
+                    val articleId = backStackEntry.arguments?.getString("articleId") ?: return@composable
+                    ArticleDetailScreen(
+                        articleId = articleId,
+                        repo = repo,
+                        onBack = { navController.popBackStack() },
                     )
                 }
             }

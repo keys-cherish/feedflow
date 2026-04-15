@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -191,27 +192,92 @@ impl FeedService {
         }
     }
 
-    /// 刷新所有 Feed
+    /// 刷新所有 Feed — 并发抓取，最多 8 路同时进行
     pub async fn refresh_all_feeds(&self) -> Result<(u64, u64)> {
         let feeds = self.db.get_all_feeds()?;
-        let mut total_new = 0u64;
-        let mut error_count = 0u64;
+        let total_new = Arc::new(AtomicU64::new(0));
+        let error_count = Arc::new(AtomicU64::new(0));
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(8));
 
-        for feed in &feeds {
-            match self.refresh_feed(feed).await {
-                Ok(new) => total_new += new,
-                Err(_) => error_count += 1,
+        let mut handles = Vec::with_capacity(feeds.len());
+
+        for feed in feeds {
+            let db = self.db.clone();
+            let fetcher = self.fetcher.clone();
+            let sem = semaphore.clone();
+            let total = total_new.clone();
+            let errors = error_count.clone();
+
+            let handle = tokio::spawn(async move {
+                let _permit = sem.acquire().await.expect("semaphore closed");
+
+                match fetcher.fetch_feed(&feed).await {
+                    Ok(Some(result)) => {
+                        let _ = db.update_feed_metadata(
+                            &feed.id,
+                            result.updated_title.as_deref(),
+                            result.updated_description.as_deref(),
+                            result.updated_site_url.as_deref(),
+                            result.updated_icon_url.as_deref(),
+                        );
+                        let _ = db.update_feed_fetch_status(
+                            &feed.id,
+                            result.etag.as_deref(),
+                            result.last_modified.as_deref(),
+                            0,
+                            None,
+                        );
+
+                        let mut new_count = 0u64;
+                        for article in &result.new_articles {
+                            if let Ok(true) = db.insert_article_if_new(article) {
+                                new_count += 1;
+                            }
+                        }
+
+                        if new_count > 0 {
+                            info!(feed_url = %feed.url, new_articles = new_count, "Feed refreshed");
+                        }
+                        total.fetch_add(new_count, Ordering::Relaxed);
+                    }
+                    Ok(None) => {
+                        let _ = db.update_feed_fetch_status(
+                            &feed.id,
+                            feed.etag.as_deref(),
+                            feed.last_modified.as_deref(),
+                            0,
+                            None,
+                        );
+                    }
+                    Err(e) => {
+                        let new_err = feed.error_count + 1;
+                        let _ = db.update_feed_fetch_status(
+                            &feed.id,
+                            feed.etag.as_deref(),
+                            feed.last_modified.as_deref(),
+                            new_err,
+                            Some(&e.to_string()),
+                        );
+                        error!(feed_url = %feed.url, error = %e, "Feed refresh failed");
+                        errors.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            });
+
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            if let Err(e) = handle.await {
+                error!("Feed refresh task panicked: {}", e);
             }
         }
 
-        info!(
-            feeds_count = feeds.len(),
-            new_articles = total_new,
-            errors = error_count,
-            "All feeds refreshed"
-        );
+        let total = total_new.load(Ordering::SeqCst);
+        let errs = error_count.load(Ordering::SeqCst);
+        info!(new_articles = total, errors = errs, "All feeds refreshed (concurrent)");
 
-        Ok((total_new, error_count))
+        Ok((total, errs))
     }
 
     /// 从 OPML 导入 Feed 和文件夹
