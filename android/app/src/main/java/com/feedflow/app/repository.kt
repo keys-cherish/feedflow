@@ -393,7 +393,6 @@ class FeedRepository(context: Context) {
     // ---- Bangumi poster support (mikan feeds) --------------------------------
 
     private val bangumiMemCache = ConcurrentHashMap<String, String?>()
-    private val MIKAN_TITLE = Regex("""\[.*?]\s*(.+?)\s*(?:/.*?)?\s*-\s*\d+""")
     private var bangumiCacheWarmed = false
 
     private suspend fun warmBangumiCache() {
@@ -435,15 +434,9 @@ class FeedRepository(context: Context) {
     }
 
     private fun extractAnimeName(title: String): String? {
-        val match = MIKAN_TITLE.find(title)
-        if (match != null) return match.groupValues[1].trim()
-        // Fallback: split by " - digit" and clean brackets
-        val parts = title.split(Regex("""\s*-\s*\d+"""), 2)
-        if (parts.isNotEmpty()) {
-            val name = parts[0].replace(Regex("""^\[.*?]\s*"""), "").trim()
-            if (name.length > 2) return name
-        }
-        return null
+        val parsed = parseMikanTitle(title)
+        val name = parsed.title.trim()
+        return if (name.length >= 2) name else null
     }
 
     private fun fetchBangumiCover(name: String): BangumiCacheEntity? {

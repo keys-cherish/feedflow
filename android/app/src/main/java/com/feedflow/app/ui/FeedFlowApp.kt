@@ -35,8 +35,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import java.net.URLDecoder
-import java.net.URLEncoder
 
 private data class NavItem(
     val label: String,
@@ -61,7 +59,7 @@ private object Routes {
     const val ANIME_DETAIL = "anime_detail/{animeName}"
 
     fun articleDetail(articleId: String) = "article/$articleId"
-    fun animeDetail(animeName: String) = "anime_detail/${URLEncoder.encode(animeName, "UTF-8")}"
+    fun animeDetail(animeName: String) = "anime_detail/${android.net.Uri.encode(animeName)}"
 }
 
 // Map tab index to route for bottom nav
@@ -175,7 +173,7 @@ fun FeedFlowApp() {
                     arguments = listOf(navArgument("animeName") { type = NavType.StringType }),
                 ) { backStackEntry ->
                     val encodedName = backStackEntry.arguments?.getString("animeName") ?: return@composable
-                    val animeName = URLDecoder.decode(encodedName, "UTF-8")
+                    val animeName = android.net.Uri.decode(encodedName)
                     AnimeDetailScreen(
                         animeName = animeName,
                         repo = repo,
