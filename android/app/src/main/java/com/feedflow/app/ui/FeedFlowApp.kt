@@ -59,7 +59,7 @@ private object Routes {
     const val ANIME_DETAIL = "anime_detail/{animeName}"
 
     fun articleDetail(articleId: String) = "article/$articleId"
-    fun animeDetail(animeName: String) = "anime_detail/${android.net.Uri.encode(animeName)}"
+    fun animeDetail(animeName: String) = "anime_detail/${android.net.Uri.encode(animeName, null)}"
 }
 
 // Map tab index to route for bottom nav

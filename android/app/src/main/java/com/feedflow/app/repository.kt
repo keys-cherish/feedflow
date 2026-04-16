@@ -280,12 +280,15 @@ class FeedRepository(context: Context) {
     suspend fun clearOldCache(daysOld: Int = 30): Int = withContext(Dispatchers.IO) {
         val cutoff = System.currentTimeMillis() - daysOld * 24 * 60 * 60 * 1000L
         val cleaned = articleDao.clearOldContent(cutoff)
+        // VACUUM to actually reclaim disk space after clearing content
+        db.openHelper.writableDatabase.execSQL("VACUUM")
         AppLogger.i("Cache cleared: $cleaned articles older than $daysOld days")
         cleaned
     }
 
     suspend fun clearAllArticles() = withContext(Dispatchers.IO) {
         articleDao.deleteAll()
+        db.openHelper.writableDatabase.execSQL("VACUUM")
         AppLogger.i("All articles deleted")
     }
 
@@ -320,7 +323,12 @@ class FeedRepository(context: Context) {
 
         grouped.map { (_, entries) ->
             val firstName = entries.first().second.title
-            val cache = bangumiCacheDao.getCover(firstName)
+            val cache = try {
+                getOrFetchBangumiCache(firstName)
+            } catch (e: Exception) {
+                AppLogger.e("Failed to get bangumi cache for: $firstName", e)
+                null
+            }
 
             val episodes = entries
                 .sortedByDescending { it.first.publishedAt }
@@ -398,11 +406,36 @@ class FeedRepository(context: Context) {
     private suspend fun warmBangumiCache() {
         if (bangumiCacheWarmed) return
         withContext(Dispatchers.IO) {
-            bangumiCacheDao.getAll().forEach { entity ->
-                bangumiMemCache[entity.animeName] = entity.coverUrl
+            try {
+                bangumiCacheDao.getAll().forEach { entity ->
+                    bangumiMemCache[entity.animeName] = entity.coverUrl
+                }
+            } catch (e: Exception) {
+                AppLogger.e("Failed to warm bangumi cache", e)
             }
             bangumiCacheWarmed = true
         }
+    }
+
+    private suspend fun getOrFetchBangumiCache(animeName: String): BangumiCacheEntity? {
+        warmBangumiCache()
+
+        if (bangumiMemCache.containsKey(animeName)) {
+            return bangumiCacheDao.getCover(animeName)
+        }
+
+        val cached = bangumiCacheDao.getCover(animeName)
+        if (cached != null) {
+            bangumiMemCache[animeName] = cached.coverUrl
+            return cached
+        }
+
+        val fetched = fetchBangumiCover(animeName)
+        bangumiCacheDao.upsertCover(
+            fetched ?: BangumiCacheEntity(animeName = animeName, coverUrl = null)
+        )
+        bangumiMemCache[animeName] = fetched?.coverUrl
+        return fetched
     }
 
     suspend fun enrichMikanThumbnails(articles: List<ArticleEntity>, feedUrl: String) {
@@ -411,27 +444,19 @@ class FeedRepository(context: Context) {
         warmBangumiCache()
         withContext(Dispatchers.IO) {
             articles.filter { it.thumbnailUrl == null }.forEach { article ->
-                val animeName = extractAnimeName(article.title) ?: return@forEach
-                val cover = bangumiMemCache.getOrPut(animeName) {
-                    // Check Room first
-                    val cached = bangumiCacheDao.getCover(animeName)
-                    if (cached != null) {
-                        cached.coverUrl
-                    } else {
-                        val entity = fetchBangumiCover(animeName)
-                        // Persist to Room regardless (null cover means "looked up, not found")
-                        bangumiCacheDao.upsertCover(
-                            entity ?: BangumiCacheEntity(animeName = animeName, coverUrl = null)
-                        )
-                        entity?.coverUrl
+                try {
+                    val animeName = extractAnimeName(article.title) ?: return@forEach
+                    val cover = getOrFetchBangumiCache(animeName)?.coverUrl
+                    if (cover != null) {
+                        articleDao.updateThumbnail(article.id, cover)
                     }
-                }
-                if (cover != null) {
-                    articleDao.updateThumbnail(article.id, cover)
+                } catch (e: Exception) {
+                    AppLogger.e("Failed to enrich thumbnail for: ${article.title}", e)
                 }
             }
         }
     }
+
 
     private fun extractAnimeName(title: String): String? {
         val parsed = parseMikanTitle(title)

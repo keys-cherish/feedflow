@@ -73,7 +73,11 @@ fun AnimeDetailScreen(
     var loading by remember { mutableStateOf(true) }
 
     LaunchedEffect(animeName) {
-        anime = repo.getAnimeDetail(animeName)
+        try {
+            anime = repo.getAnimeDetail(animeName)
+        } catch (e: Exception) {
+            AppLogger.e("Failed to load anime detail: $animeName", e)
+        }
         loading = false
     }
 

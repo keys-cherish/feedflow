@@ -70,9 +70,13 @@ fun AnimeScreen(
     fun loadData() {
         scope.launch {
             loading = true
-            val list = repo.getAnimeList()
-            animeList.clear()
-            animeList.addAll(list)
+            try {
+                val list = repo.getAnimeList()
+                animeList.clear()
+                animeList.addAll(list)
+            } catch (e: Exception) {
+                AppLogger.e("Failed to load anime list", e)
+            }
             loading = false
         }
     }

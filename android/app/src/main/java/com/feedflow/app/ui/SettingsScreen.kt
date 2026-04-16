@@ -71,8 +71,9 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var showClearAllDialog by remember { mutableStateOf(false) }
+    var refreshTrigger by remember { mutableStateOf(0) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(refreshTrigger) {
         stats = repo.getStats()
         cacheInfo = repo.getCacheStats()
     }
@@ -167,7 +168,7 @@ fun SettingsScreen(
                             onClick = {
                                 scope.launch {
                                     val count = repo.clearOldCache(30)
-                                    cacheInfo = repo.getCacheStats()
+                                    refreshTrigger++
                                     snackbarHostState.showSnackbar("已清理 $count 篇旧文章的正文缓存")
                                 }
                             },
@@ -299,8 +300,7 @@ fun SettingsScreen(
                 TextButton(onClick = {
                     scope.launch {
                         repo.clearAllArticles()
-                        cacheInfo = repo.getCacheStats()
-                        stats = repo.getStats()
+                        refreshTrigger++
                         snackbarHostState.showSnackbar("已清空全部文章")
                     }
                     showClearAllDialog = false
